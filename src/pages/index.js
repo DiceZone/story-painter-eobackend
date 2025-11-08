@@ -1,7 +1,26 @@
+import { useState } from 'react';
+
 export default function HomePage() {
   // 获取当前域名
   const currentDomain = typeof window !== 'undefined' ? window.location.origin : '';
   
+  // 复制功能
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) {
+      // 降级方案
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return true;
+    }
+  };
+
   return (
     <>
       <style jsx global>{`
@@ -98,9 +117,51 @@ export default function HomePage() {
         
         .domain-hint {
           font-size: 0.85rem;
-          color: #8bc2f0;
+          color: #7a6b8d;
           margin-top: 0.3rem;
-          font-style: italic;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        
+        .copy-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 0.2rem;
+          border-radius: 3px;
+          color: #8bc2f0;
+          transition: all 0.2s;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .copy-btn:hover {
+          background-color: #e8f4ff;
+          color: #5a8de0;
+        }
+        
+        .copy-btn:active {
+          transform: scale(0.95);
+        }
+        
+        .copy-icon {
+          width: 14px;
+          height: 14px;
+        }
+        
+        .copy-success {
+          color: #4caf50;
+          font-size: 0.8rem;
+          margin-left: 0.5rem;
+          animation: fadeOut 2s ease-in-out forwards;
+        }
+        
+        @keyframes fadeOut {
+          0% { opacity: 1; }
+          70% { opacity: 1; }
+          100% { opacity: 0; }
         }
         
         @media (max-width: 600px) {
@@ -122,28 +183,58 @@ export default function HomePage() {
           用于对接海豹骰子（SealDice）的自维护日志存储后端服务。
         </p>
         <div className="api-grid">
-          <div className="api-card">
-            <div>
-              <span className="api-path">/api/dice/log</span>
-              <span className="api-method">PUT</span>
-            </div>
-            <p className="api-description">上传日志文件。</p>
-            {currentDomain && (
-              <p className="domain-hint">完整路径: {currentDomain}/api/dice/log</p>
-            )}
-          </div>
-          <div className="api-card">
-            <div>
-              <span className="api-path">/api/dice/load_data</span>
-              <span className="api-method">GET</span>
-            </div>
-            <p className="api-description">根据 Key 和 Password 读取日志数据。</p>
-            {currentDomain && (
-              <p className="domain-hint">完整路径: {currentDomain}/api/dice/load_data</p>
-            )}
-          </div>
+          <APICard 
+            domain={currentDomain} 
+            path="/api/dice/log" 
+            method="PUT" 
+            description="上传日志文件。" 
+            onCopy={copyToClipboard}
+          />
+          <APICard 
+            domain={currentDomain} 
+            path="/api/dice/load_data" 
+            method="GET" 
+            description="根据 Key 和 Password 读取日志数据。" 
+            onCopy={copyToClipboard}
+          />
         </div>
       </div>
     </>
+  );
+}
+
+// API卡片组件
+function APICard({ domain, path, method, description, onCopy }) {
+  const [copied, setCopied] = useState(false);
+  
+  const fullPath = domain + path;
+  
+  const handleCopy = async () => {
+    const success = await onCopy(fullPath);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+  
+  return (
+    <div className="api-card">
+      <div>
+        <span className="api-path">{path}</span>
+        <span className="api-method">{method}</span>
+      </div>
+      <p className="api-description">{description}</p>
+      {domain && (
+        <div className="domain-hint">
+          <span>完整路径: {fullPath}</span>
+          <button className="copy-btn" onClick={handleCopy} title="复制完整路径">
+            <svg className="copy-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+          </button>
+          {copied && <span className="copy-success">已复制!</span>}
+        </div>
+      )}
+    </div>
   );
 }
