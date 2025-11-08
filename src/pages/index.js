@@ -58,12 +58,49 @@ export default function HomePage() {
           box-shadow: 0 4px 15px rgba(137, 207, 240, 0.2);
           margin-bottom: 20px;
           border: 1px solid #e0f0ff;
+          position: relative;
+        }
+        
+        .github-btn {
+          position: absolute;
+          top: 20px;
+          right: 20px;
+          background: #333;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          padding: 8px 16px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          text-decoration: none;
+          font-size: 0.9rem;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .github-btn:hover {
+          background: #555;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .github-btn:active {
+          transform: translateY(0);
+        }
+        
+        .github-icon {
+          width: 18px;
+          height: 18px;
+          fill: currentColor;
         }
         
         .header {
           border-bottom: 1px solid #e0f0ff;
           padding-bottom: 1rem;
           margin-bottom: 2rem;
+          padding-right: 120px; /* 为GitHub按钮留出空间 */
         }
         
         .title {
@@ -132,20 +169,40 @@ export default function HomePage() {
           margin-top: 0.5rem;
         }
         
+        .api-url-container {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          margin-top: 0.8rem;
+        }
+        
+        .api-full-url {
+          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+          font-size: 0.9rem;
+          color: #7a6b8d;
+          background: #f0f5ff;
+          padding: 0.5rem 0.8rem;
+          border-radius: 4px;
+          word-break: break-all;
+          border: 1px solid #e0f0ff;
+          flex: 1;
+        }
+        
         .copy-btn {
           background: #6fb3e0;
           border: none;
           border-radius: 4px;
           color: white;
           cursor: pointer;
-          padding: 0.4rem 0.8rem;
-          font-size: 0.8rem;
+          padding: 0.5rem 1rem;
+          font-size: 0.85rem;
           display: flex;
           align-items: center;
-          gap: 0.3rem;
+          gap: 0.4rem;
           transition: background-color 0.2s;
           white-space: nowrap;
           flex-shrink: 0;
+          height: fit-content;
         }
         
         .copy-btn:hover {
@@ -156,17 +213,9 @@ export default function HomePage() {
           transform: scale(0.98);
         }
         
-        .api-full-url {
-          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-          font-size: 0.9rem;
-          color: #7a6b8d;
-          background: #f0f5ff;
-          padding: 0.5rem 0.8rem;
-          border-radius: 4px;
-          margin-top: 0.8rem;
-          word-break: break-all;
-          border: 1px solid #e0f0ff;
-          display: block; /* 修改这里：从 none 改为 block */
+        .copy-icon {
+          width: 14px;
+          height: 14px;
         }
         
         @media (max-width: 600px) {
@@ -179,14 +228,33 @@ export default function HomePage() {
               font-size: 1.4rem;
           }
           
+          .github-btn {
+            position: relative;
+            top: auto;
+            right: auto;
+            margin: 0 auto 20px auto;
+            align-self: center;
+          }
+          
+          .header {
+            padding-right: 0;
+          }
+          
           .api-path-container {
               flex-direction: column;
               align-items: flex-start;
               gap: 0.5rem;
           }
           
+          .api-url-container {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0.5rem;
+          }
+          
           .copy-btn {
-              align-self: flex-end;
+            align-self: flex-end;
+            width: fit-content;
           }
           
           .api-full-url {
@@ -195,63 +263,74 @@ export default function HomePage() {
           }
         }
       `}</style>
+      
       <div className="container">
+        {/* GitHub按钮 */}
+        <a 
+          href="https://github.com/ShiaBox/story-painter-backend" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="github-btn"
+        >
+          <svg className="github-icon" viewBox="0 0 16 16" width="16" height="16">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          源码
+        </a>
+        
         <div className="header">
-          <h1 className="title">SealDice Log Service</h1>
+          <h1 className="title">SealDice Log Backend</h1>
+          <p className="description">
+            用于接收并存储海豹核心的跑团日志，接口返回查看链接。
+          </p>
         </div>
-        <p className="description">
-          用于对接海豹骰子（SealDice）的自维护日志存储后端服务。
-        </p>
+        
         <div className="api-grid">
           <div className="api-card">
             <div className="api-path-container">
-              <div>
-                <span className="api-path">/api/dice/log</span>
-                <span className="api-method">PUT</span>
-              </div>
+              <span className="api-path">/api/dice/log</span>
+              <span className="api-method">PUT</span>
+            </div>
+            <p className="api-description">
+              multipart/form-data：name，uniform_id=xxx:数字，file&lt;2MB
+            </p>
+            <div className="api-url-container">
+              <span className="api-full-url">{baseUrl}/api/dice/log</span>
               <button 
-                className="copy-btn" 
+                className="copy-btn"
                 onClick={() => copyToClipboard('/api/dice/log')}
-                title="复制完整API链接"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                <svg className="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" strokeWidth="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" strokeWidth="2"/>
                 </svg>
                 复制
               </button>
             </div>
-            <p className="api-description">上传日志文件。</p>
-            {baseUrl && (
-              <div className="api-full-url">
-                {baseUrl}/api/dice/log
-              </div>
-            )}
           </div>
+          
           <div className="api-card">
             <div className="api-path-container">
-              <div>
-                <span className="api-path">/api/dice/load_data</span>
-                <span className="api-method">GET</span>
-              </div>
+              <span className="api-path">/api/dice/load_data</span>
+              <span className="api-method">GET</span>
+            </div>
+            <p className="api-description">
+              参数：key=AbCd&amp;password=123456<br/>
+              成功返回示例：{"{"}"url":"https://your-frontend.example.com/?key=AbCd#123456"{"}"}
+            </p>
+            <div className="api-url-container">
+              <span className="api-full-url">{baseUrl}/api/dice/load_data?key=AbCd&amp;password=123456</span>
               <button 
-                className="copy-btn" 
-                onClick={() => copyToClipboard('/api/dice/load_data')}
-                title="复制完整API链接"
+                className="copy-btn"
+                onClick={() => copyToClipboard('/api/dice/load_data?key=AbCd&password=123456')}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                <svg className="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" strokeWidth="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" strokeWidth="2"/>
                 </svg>
                 复制
               </button>
             </div>
-            <p className="api-description">根据 Key 和 Password 读取日志数据。</p>
-            {baseUrl && (
-              <div className="api-full-url">
-                {baseUrl}/api/dice/load_data
-              </div>
-            )}
           </div>
         </div>
       </div>
