@@ -1,6 +1,6 @@
 {
   "name": "sealdice-log-backend",
-  "version": "0.1.0",
+  "version": "1.0.3",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.2.3",
+    "next": "^15.1.0",
     "react": "^18",
     "react-dom": "^18"
   }
