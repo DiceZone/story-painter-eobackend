@@ -42,4 +42,4 @@
 - 等待 EdgeOne Pages 自动构建完成
 
 ## 项目参考
-[海豹骰日志后端 - Worker版](https://github.com/sealdice/story-painter-cfbackend/) 
+[海豹骰日志后端 - Worker版](https://github.com/sealdice/story-painter) 
