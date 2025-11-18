@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "echo 'Build skipped - EdgeOne uses functions/ directory' && mkdir -p .next",
     "start": "next start",
     "lint": "next lint"
   },
