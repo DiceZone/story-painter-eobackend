@@ -282,40 +282,42 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @param {string} backupApiUrl - The backup API endpoint URL
  * @param {string} uniform_id - The uniform ID from the request
  * @param {string} name - The log name
- * @param {File} file - The original file object
+ * @param {string} logdata - Base64 encoded log data
  * @returns {Promise<object>} Response from backup API
  */
-async function uploadToBackupApi(backupApiUrl, uniform_id, name, file) {
-  // Send as FormData to backup API - use the same format as main API expects
+async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
+  // Send as FormData to backup API
   const formData = new FormData();
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
-  formData.append('file', file);
-
-  // Manually set Content-Type header for EdgeOne Pages compatibility
-  const boundary = '----FormBoundary' + Math.random().toString(36).substr(2, 9);
-  const headers = {
-    'Content-Type': `multipart/form-data; boundary=${boundary}`
-  };
-
+  formData.append('logdata', logdata);
+  
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
-    body: formData,
-    headers: headers
+    body: formData
   });
-
+  
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${errorText}`);
   }
-
+  
   return await response.json();
 }
 
-export default async function(request, env) {
-  const url = new URL(request.url);
-  const pathname = url.pathname;
-  const searchParams = url.searchParams;
+const getCorsHeaders = (frontendUrl, methods = 'GET, PUT, OPTIONS') => ({
+  'Access-Control-Allow-Origin': frontendUrl.slice(0, -1),
+  'Access-Control-Allow-Methods': methods,
+  'Access-Control-Allow-Headers': 'Content-Type, Accept-Version',
+});
+
+/**
+ * EdgeOne Pages Function handler
+ * @param {object} context - The function context.
+ * @param {Request} context.request - The incoming request.
+ */
+export async function onRequest({ request, env }) {
+  const { pathname, searchParams } = new URL(request.url);
 
   // Log all requests for debugging
   console.log(`[DEBUG] Request: ${request.method} ${pathname}`);
@@ -414,11 +416,12 @@ export default async function(request, env) {
         console.error(`Upload Error - KV.put failed:`, errorStr);
         console.error(`Upload Error Message: ${errorMsg}`);
         
-        // KV upload failed, try backup API if available
+        // KV upload failed, try backup upload bridge if available
+        const backupApiUrl = await resolveBackupApi(env);
         if (backupApiUrl) {
-          console.log(`Upload: KV storage failed, attempting backup API at ${backupApiUrl}...`);
+          console.log(`Upload: KV storage failed, attempting backup API via bridge at ${backupApiUrl}...`);
           try {
-            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, file);
+            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
             console.log(`Upload: Successfully uploaded to backup API:`, backupResult);
             uploadedToBackup = true;
             
@@ -547,6 +550,99 @@ export default async function(request, env) {
     } catch (error) {
       console.error('Load data error:', error);
       return new Response(error.stack || '服务器错误 Internal Server Error', { status: 500 });
+    }
+  }
+
+  // --- Route 4: Backup Upload ---
+  if ((pathname === '/api/dice/backup-upload' || pathname.endsWith('/api/dice/backup-upload')) && request.method === 'PUT') {
+    console.log('[ROUTE] Matched: Backup Upload');
+    try {
+      const contentLength = request.headers.get('Content-Length');
+      if (contentLength && parseInt(contentLength, 10) > FILE_SIZE_LIMIT_MB * 1024 * 1024) {
+        return new Response(
+          JSON.stringify({ success: false, message: `File size exceeds ${FILE_SIZE_LIMIT_MB}MB limit` }),
+          { status: 413, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const formData = await request.formData();
+      const name = formData.get("name");
+      const logdata = formData.get("logdata");
+      const uniform_id = formData.get("uniform_id");
+
+      if (!uniform_id || !name || !logdata) {
+        return new Response(
+          JSON.stringify({ success: false, message: "Missing required fields: uniform_id, name, or logdata" }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!/^[^:]+:\d+$/.test(uniform_id)) {
+        return new Response(
+          JSON.stringify({ data: "uniform_id field did not pass validation" }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const password = Math.floor(Math.random() * (999999 - 100000 + 1) + 100000);
+      const key = generateRandomString(4);
+      const storageKey = `${key}#${password}`;
+      const backupLogContent = JSON.stringify({
+        client: "SealDice",
+        created_at: new Date().toISOString(),
+        data: logdata,
+        name: name,
+        note: "Backup upload",
+        updated_at: new Date().toISOString(),
+      });
+
+      try {
+        // Try to store in own KV
+        await XBSKV.put(storageKey, backupLogContent);
+        console.log(`Backup Upload: Successfully saved with key: ${storageKey}`);
+
+        const responsePayload = { url: `${FRONTEND_URL}?key=${key}#${password}` };
+
+        return new Response(JSON.stringify(responsePayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (kvErr) {
+        // Own KV storage failed, try next level backup API if configured
+        const errorMsg = String(kvErr?.message || kvErr?.toString() || 'Unknown error');
+        console.error(`Backup Upload: Own KV storage failed: ${errorMsg}`);
+
+        const backupApiUrl = await resolveBackupApi(env);
+        if (backupApiUrl) {
+          console.log(`Backup Upload: Own KV failed, attempting next level backup API at ${backupApiUrl}...`);
+          try {
+            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
+            console.log(`Backup Upload: Successfully forwarded to next level backup API:`, backupResult);
+
+            // Return backup API's response directly
+            return new Response(JSON.stringify(backupResult), {
+              status: 202,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          } catch (backupErr) {
+            const backupMsg = String(backupErr?.message || backupErr?.toString() || 'Unknown error');
+            console.error('Backup Upload: Next level backup API also failed:', backupMsg);
+
+            // Both own KV and next level backup API failed
+            const fullErrorMsg = `Own KV storage error: ${errorMsg}\n\nNext level backup API error: ${backupMsg}`;
+            return new Response(fullErrorMsg, { status: 500 });
+          }
+        } else {
+          // No backup API configured and own KV failed
+          console.log('Backup Upload: Own KV failed and no next level backup API configured');
+          const fullErrorMsg = `Own KV storage error: ${errorMsg}\n\nNo next level backup API configured`;
+          return new Response(fullErrorMsg, { status: 500 });
+        }
+      }
+
+    } catch (error) {
+      console.error('Backup upload error:', error);
+      return new Response(error.stack || 'Internal Server Error', { status: 500 });
     }
   }
 
