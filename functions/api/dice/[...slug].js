@@ -282,15 +282,15 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @param {string} backupApiUrl - The backup API endpoint URL
  * @param {string} uniform_id - The uniform ID from the request
  * @param {string} name - The log name
- * @param {string} logdata - Base64 encoded log data
+ * @param {File} file - The original file object
  * @returns {Promise<object>} Response from backup API
  */
-async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Send as FormData to backup API
+async function uploadToBackupApi(backupApiUrl, uniform_id, name, file) {
+  // Send as FormData to backup API - use the same format as main API expects
   const formData = new FormData();
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
-  formData.append('logdata', logdata);
+  formData.append('file', file);
   
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
@@ -420,7 +420,7 @@ export async function onRequest({ request, env }) {
         if (backupApiUrl) {
           console.log(`Upload: KV storage failed, attempting backup API at ${backupApiUrl}...`);
           try {
-            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
+            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, file);
             console.log(`Upload: Successfully uploaded to backup API:`, backupResult);
             uploadedToBackup = true;
             
