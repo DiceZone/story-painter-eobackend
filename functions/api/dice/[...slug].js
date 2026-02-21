@@ -78,7 +78,12 @@ async function cleanupOldLogs(kvStorage, retentionDays) {
     
     do {
       addLog(`Fetching page ${pageCount + 1} (cursor: ${cursor || 'null'})...`);
-      result = await kvStorage.list({ cursor, limit: 256 });
+      // cursor cannot be undefined, must be string or omitted
+      const listOptions = { limit: 256 };
+      if (cursor) {
+        listOptions.cursor = cursor;
+      }
+      result = await kvStorage.list(listOptions);
       pageCount++;
       
       addLog(`Page ${pageCount}: hasResult=${!!result}, hasKeys=${!!result?.keys}, keysLength=${result?.keys?.length || 0}, complete=${result?.complete}`);
@@ -170,7 +175,12 @@ async function cleanupOldLogsQuick(kvStorage, timeoutMs = 5000) {
       }
       
       console.log(`QuickCleanup: Fetching page ${pageCount + 1}...`);
-      result = await kvStorage.list({ cursor, limit: 256 });
+      // cursor cannot be undefined, must be string or omitted
+      const listOptions = { limit: 256 };
+      if (cursor) {
+        listOptions.cursor = cursor;
+      }
+      result = await kvStorage.list(listOptions);
       pageCount++;
       
       if (!result || !result.keys || result.keys.length === 0) {
