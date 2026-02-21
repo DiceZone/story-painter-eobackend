@@ -389,6 +389,7 @@ export async function onRequest({ request, env }) {
       let uploadedToBackup = false;
       const retentionDays = getLogRetentionDays(env);
       const backupApiUrl = await resolveBackupApi(env);
+      console.log(`Upload: Backup API URL resolved to: ${backupApiUrl || 'null (not configured)'}`);
       
       try {
         // Attempt upload
@@ -415,69 +416,35 @@ export async function onRequest({ request, env }) {
         // Better error logging
         const errorMsg = String(uploadError?.message || uploadError?.toString() || 'Unknown error');
         const errorStr = JSON.stringify(uploadError, null, 2);
-        console.error(`Upload Error Details:`, errorStr);
+        console.error(`Upload Error - KV.put failed:`, errorStr);
         console.error(`Upload Error Message: ${errorMsg}`);
         
-        // Check if the error is due to KV storage limit
-        if (errorMsg.includes('limit exceeded') || errorMsg.includes('quota') || errorMsg.includes('exceeded')) {
-          console.log('Upload: KV storage limit exceeded, need to cleanup old logs first');
-          
-          let cleanupSuccess = false;
+        // KV upload failed, try backup API if available
+        if (backupApiUrl) {
+          console.log(`Upload: KV storage failed, attempting backup API at ${backupApiUrl}...`);
           try {
-            // Quick cleanup of old logs based on index
-            console.log('Upload: Running quick cleanup based on index...');
-            const cleanupResult = await cleanupOldLogsViaIndex(XBSKV, 1); // 1 day retention for emergency
-            console.log(`Upload: Emergency cleanup completed - deleted ${cleanupResult.deletedCount} logs`);
+            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
+            console.log(`Upload: Successfully uploaded to backup API:`, backupResult);
+            uploadedToBackup = true;
             
-            // Wait a moment before retrying
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Return backup API's response directly to client
+            return new Response(JSON.stringify(backupResult), {
+              status: 202,  // 202 Accepted - backup upload
+              headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, OPTIONS'), 'Content-Type': 'application/json' },
+            });
+          } catch (backupErr) {
+            const backupMsg = String(backupErr?.message || backupErr?.toString() || 'Unknown error');
+            console.error('Upload: Backup API also failed:', backupMsg);
             
-            // Retry upload after cleanup
-            await XBSKV.put(storageKey, logContent);
-            uploadSuccess = true;
-            cleanupSuccess = true;
-            console.log(`Upload: Successfully saved log after cleanup with key: ${storageKey}`);
-            
-            // Synchronously update index after successful retry
-            await addToIndexTable(XBSKV, storageKey);
-            console.log(`Upload: Added to index table after retry`);
-            
-          } catch (retryError) {
-            const retryMsg = String(retryError?.message || retryError?.toString() || 'Unknown error');
-            console.error('Upload: Failed to upload after cleanup attempt:', retryMsg);
-            
-            // If cleanup and retry failed, try backup API if available
-            if (backupApiUrl) {
-              console.log(`Upload: KV storage unavailable, attempting backup API...`);
-              try {
-                const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
-                console.log(`Upload: Successfully uploaded to backup API:`, backupResult);
-                uploadedToBackup = true;
-                
-                // Return success response indicating backup storage was used
-                const responsePayload = {
-                  url: `${FRONTEND_URL}?backup=true#${backupApiUrl}`,
-                  message: 'Log uploaded to backup storage due to KV storage unavailability',
-                  backup: true
-                };
-                
-                return new Response(JSON.stringify(responsePayload), {
-                  status: 202,  // 202 Accepted - backup upload
-                  headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, OPTIONS'), 'Content-Type': 'application/json' },
-                });
-              } catch (backupErr) {
-                const backupMsg = String(backupErr?.message || backupErr?.toString() || 'Unknown error');
-                console.error('Upload: Backup API also failed:', backupMsg);
-                throw new Error(`Upload failed: KV storage unavailable and backup API failed: ${backupMsg}`);
-              }
-            } else {
-              throw new Error(`Upload failed even after cleanup: ${retryMsg}`);
-            }
+            // Both KV and backup API failed - return error with both messages
+            const fullErrorMsg = `KV storage error: ${errorMsg}\n\nBackup API error: ${backupMsg}`;
+            return new Response(fullErrorMsg, { status: 500 });
           }
         } else {
-          // Not a storage limit error, re-throw
-          console.error('Upload: Non-storage error, re-throwing:', errorMsg);
-          throw uploadError;
+          // No backup API configured and KV failed
+          console.log('Upload: KV storage failed and no backup API configured');
+          const fullErrorMsg = `KV storage error: ${errorMsg}\n\nNo backup API configured`;
+          return new Response(fullErrorMsg, { status: 500 });
         }
       }
 
