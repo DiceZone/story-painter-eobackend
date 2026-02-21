@@ -286,28 +286,24 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @returns {Promise<object>} Response from backup API
  */
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Create FormData just like the original upload endpoint expects
-  const formData = new FormData();
-  
-  // Convert base64 back to binary blob
-  const binaryString = atob(logdata);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const blob = new Blob([bytes], { type: 'application/octet-stream' });
-  
-  formData.append('uniform_id', uniform_id);
-  formData.append('name', name);
-  formData.append('file', blob, 'log.bin');
+  // Send as JSON to backup API
+  const payload = {
+    uniform_id: uniform_id,
+    name: name,
+    logdata: logdata
+  };
   
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
-    body: formData
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
   
   if (!response.ok) {
-    throw new Error(`Backup API returned status ${response.status}`);
+    const errorText = await response.text();
+    throw new Error(`Backup API returned status ${response.status}: ${errorText}`);
   }
   
   return await response.json();
