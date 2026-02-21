@@ -269,7 +269,7 @@ export default function HomePage() {
         <div className="header">
           <h1 className="title">SealDice Log Service</h1>
           <div style={{ textAlign: 'center' }}>
-            <span className="version-badge">v20251222-beta0202</span>
+            <span className="version-badge">v20260221-beta2132</span>
           </div>
         </div>
         <p className="description">
