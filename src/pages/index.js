@@ -1,7 +1,38 @@
 import { useState, useEffect } from 'react';
-import { LOG_RETENTION_DAYS } from '../../config/appConfig';
 
-export default function HomePage() {
+function getLogRetentionDays() {
+  // 1. 先从 process.env 取
+  if (process.env.LOG_RETENTION_DAYS) {
+    const days = parseInt(process.env.LOG_RETENTION_DAYS, 10);
+    if (!isNaN(days) && days > 0) {
+      return days;
+    }
+  }
+  
+  // 2. 再从 appConfig 取
+  try {
+    const appConfig = require('../../config/appConfig.js');
+    if (appConfig.LOG_RETENTION_DAYS && appConfig.LOG_RETENTION_DAYS > 0) {
+      return appConfig.LOG_RETENTION_DAYS;
+    }
+  } catch (err) {
+    // ignore
+  }
+  
+  // 3. 默认30天
+  return 30;
+}
+
+export async function getStaticProps() {
+  return {
+    props: {
+      logRetentionDays: getLogRetentionDays(),
+    },
+    revalidate: 3600, // 每小时重新生成一次
+  };
+}
+
+export default function HomePage({ logRetentionDays = 30 }) {
   const [baseUrl, setBaseUrl] = useState('');
   
   useEffect(() => {
@@ -314,7 +345,7 @@ export default function HomePage() {
           <circle cx="12" cy="12" r="10"></circle>
           <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
-        日志留存 {LOG_RETENTION_DAYS} 天
+        日志留存 {logRetentionDays} 天
       </div>
       
       <div className="container">
