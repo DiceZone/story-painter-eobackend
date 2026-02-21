@@ -580,10 +580,11 @@ export async function onRequest({ request, env }) {
         );
       }
 
-      const formData = await request.formData();
-      const name = formData.get("name");
-      const logdata = formData.get("logdata");
-      const uniform_id = formData.get("uniform_id");
+      // Parse JSON from request body
+      const body = await request.json();
+      const name = body.name;
+      const logdata = body.logdata;
+      const uniform_id = body.uniform_id;
 
       if (!uniform_id || !name || !logdata) {
         return new Response(
