@@ -286,19 +286,15 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @returns {Promise<object>} Response from backup API
  */
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Send as JSON to backup API
-  const payload = {
-    uniform_id: uniform_id,
-    name: name,
-    logdata: logdata
-  };
+  // Send as FormData to backup API
+  const formData = new FormData();
+  formData.append('uniform_id', uniform_id);
+  formData.append('name', name);
+  formData.append('logdata', logdata);
   
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+    body: formData
   });
   
   if (!response.ok) {
