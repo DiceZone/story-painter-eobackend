@@ -279,7 +279,7 @@ const FILE_SIZE_LIMIT_MB = 5;
 
 /**
  * Upload log to backup API endpoint
- * @param {string} backupApiUrl - The backup API endpoint URL
+ * @param {string} backupApiUrl - The backup API full endpoint URL (including /api/dice/log)
  * @param {string} uniform_id - The uniform ID from the request
  * @param {string} name - The log name
  * @param {string} logdata - Base64 encoded log data
@@ -289,19 +289,14 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Convert base64 back to binary for FormData
-  const binaryString = atob(logdata);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const blob = new Blob([bytes], { type: 'application/octet-stream' });
-
-  // Send as FormData to backup API (matching main API format)
+  // Decode base64 logdata back to buffer
+  const buffer = Buffer.from(logdata, 'base64');
+  
+  // Send as FormData to backup API (with boundary), matching main API format
   const formData = new FormData();
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
-  formData.append('file', blob);
+  formData.append('file', buffer, { filename: 'log.txt' });  // Append as file field
 
   const headers = formData.getHeaders();
 
@@ -313,8 +308,7 @@ async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`[BackupAPI] 请求失败，实际请求地址: ${backupApiUrl}`);
-    throw new Error(`Backup API returned status ${response.status}: ${errorText}`);
+    throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${errorText}`);
   }
 
   return await response.json();
