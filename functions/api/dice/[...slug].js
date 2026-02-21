@@ -52,9 +52,10 @@ function getLogRetentionDays(env) {
  * Clean up old logs that exceed the retention period
  * @param {object} kvStorage - The KV storage object (XBSKV)
  * @param {number} retentionDays - Number of days to keep logs
+ * @param {Function} logCallback - Optional callback for each log message
  * @returns {Promise<object>} Summary of deleted logs with execution logs
  */
-async function cleanupOldLogs(kvStorage, retentionDays) {
+async function cleanupOldLogs(kvStorage, retentionDays, logCallback = null) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
   
@@ -66,6 +67,14 @@ async function cleanupOldLogs(kvStorage, retentionDays) {
     const logEntry = `[${new Date().toISOString()}] ${msg}`;
     logs.push(logEntry);
     console.log(logEntry);
+    // Call callback if provided (for SSE streaming)
+    if (logCallback) {
+      try {
+        logCallback(logEntry);
+      } catch (err) {
+        console.error('Error in log callback:', err);
+      }
+    }
   };
   
   try {
@@ -424,36 +433,135 @@ export async function onRequest({ request, env }) {
   // --- Route 2: Cleanup Logs ---
   if ((pathname === '/api/dice/cleanup' || pathname.endsWith('/api/dice/cleanup')) && (request.method === 'GET' || request.method === 'POST')) {
     console.log('[ROUTE] Matched: Cleanup Logs');
-    try {
-      const retentionDays = getLogRetentionDays(env);
-      
-      const cleanupResult = await cleanupOldLogs(XBSKV, retentionDays);
-      
-      const responsePayload = {
-        success: true,
-        message: `Cleanup completed: deleted ${cleanupResult.deletedCount} logs out of ${cleanupResult.processedCount} processed`,
-        deletedCount: cleanupResult.deletedCount,
-        processedCount: cleanupResult.processedCount,
-        retentionDays: cleanupResult.retentionDays,
-        timestamp: new Date().toISOString(),
-        logs: cleanupResult.logs || []
-      };
-      
-      return new Response(JSON.stringify(responsePayload, null, 2), {
-        status: 200,
-        headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
-      });
-    } catch (error) {
-      const errorResponse = {
-        success: false,
-        error: error.message || 'Unknown error',
-        timestamp: new Date().toISOString(),
-        stack: error.stack
-      };
-      return new Response(JSON.stringify(errorResponse, null, 2), {
-        status: 500,
-        headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
-      });
+    const stream = searchParams.get('stream') === 'true';
+    
+    if (stream) {
+      // SSE (Server-Sent Events) streaming mode
+      try {
+        const retentionDays = getLogRetentionDays(env);
+        const encoder = new TextEncoder();
+        let isClosed = false;
+        
+        const sendEvent = (data) => {
+          return new Uint8Array(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        };
+        
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        
+        // Send initialization event
+        await writer.write(sendEvent({
+          type: 'init',
+          message: 'Cleanup started',
+          retentionDays: retentionDays,
+          timestamp: new Date().toISOString()
+        }));
+        
+        // Create log callback for streaming
+        const logCallback = async (logMsg) => {
+          if (!isClosed) {
+            try {
+              await writer.write(sendEvent({
+                type: 'log',
+                message: logMsg,
+                timestamp: new Date().toISOString()
+              }));
+            } catch (err) {
+              console.error('Error writing to stream:', err);
+              isClosed = true;
+            }
+          }
+        };
+        
+        // Run cleanup with streaming callback
+        const cleanupPromise = cleanupOldLogs(XBSKV, retentionDays, logCallback)
+          .then(async (result) => {
+            if (!isClosed) {
+              try {
+                // Send completion event
+                await writer.write(sendEvent({
+                  type: 'complete',
+                  message: `Cleanup completed: deleted ${result.deletedCount} logs`,
+                  deletedCount: result.deletedCount,
+                  processedCount: result.processedCount,
+                  retentionDays: result.retentionDays,
+                  timestamp: new Date().toISOString()
+                }));
+              } catch (err) {
+                console.error('Error sending completion event:', err);
+              }
+            }
+            isClosed = true;
+            await writer.close();
+          })
+          .catch(async (err) => {
+            if (!isClosed) {
+              try {
+                await writer.write(sendEvent({
+                  type: 'error',
+                  error: err.message || 'Unknown error',
+                  timestamp: new Date().toISOString()
+                }));
+              } catch (writeErr) {
+                console.error('Error sending error event:', writeErr);
+              }
+            }
+            isClosed = true;
+            await writer.close();
+          });
+        
+        return new Response(readable, {
+          status: 200,
+          headers: {
+            ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'),
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+          },
+        });
+      } catch (error) {
+        console.error('SSE Error:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message || 'Unknown error'
+        }), {
+          status: 500,
+          headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
+        });
+      }
+    } else {
+      // Traditional JSON response mode
+      try {
+        const retentionDays = getLogRetentionDays(env);
+        
+        const cleanupResult = await cleanupOldLogs(XBSKV, retentionDays);
+        
+        const responsePayload = {
+          success: true,
+          message: `Cleanup completed: deleted ${cleanupResult.deletedCount} logs out of ${cleanupResult.processedCount} processed`,
+          deletedCount: cleanupResult.deletedCount,
+          processedCount: cleanupResult.processedCount,
+          retentionDays: cleanupResult.retentionDays,
+          timestamp: new Date().toISOString(),
+          logs: cleanupResult.logs || []
+        };
+        
+        return new Response(JSON.stringify(responsePayload, null, 2), {
+          status: 200,
+          headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
+        });
+      } catch (error) {
+        const errorResponse = {
+          success: false,
+          error: error.message || 'Unknown error',
+          timestamp: new Date().toISOString(),
+          stack: error.stack
+        };
+        return new Response(JSON.stringify(errorResponse, null, 2), {
+          status: 500,
+          headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
+        });
+      }
     }
   }
 
