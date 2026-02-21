@@ -48,7 +48,7 @@ function getLogRetentionDays(env) {
   return 30; // Default to 30 days
 }
 
-const INDEX_KEY = '0A#index';
+const INDEX_KEY = '0Aindex';
 
 /**
  * Read the index table from KV storage
@@ -128,29 +128,34 @@ async function cleanupOldLogsViaIndex(kvStorage, retentionDays) {
     }
     
     const keysToDelete = [];
+    let keptCount = 0;
     
-    // Iterate through index entries
+    // Iterate through index entries and count
     for (const logEntry of index.logs) {
       processedCount++;
       const createdAt = new Date(logEntry.created_at);
       
       if (createdAt < cutoffDate) {
         keysToDelete.push(logEntry.key);
-        addLog(`SCHEDULED FOR DELETION: key=${logEntry.key}, created=${createdAt.toISOString()} (older than ${retentionDays} days)`);
       } else {
-        addLog(`KEPT: key=${logEntry.key}, created=${createdAt.toISOString()} (within retention)`);
+        keptCount++;
       }
     }
+    
+    addLog(`Analysis complete: ${keysToDelete.length} logs to delete, ${keptCount} logs to keep (within ${retentionDays} day retention)`);
     
     // Delete the old logs
     for (const key of keysToDelete) {
       try {
         await kvStorage.delete(key);
         deletedCount++;
-        addLog(`DELETED: ${key}`);
       } catch (err) {
-        addLog(`ERROR deleting ${key}: ${err.message}`);
+        addLog(`ERROR deleting log: ${err.message}`);
       }
+    }
+    
+    if (deletedCount > 0) {
+      addLog(`Successfully deleted ${deletedCount} logs`);
     }
     
     // Update the index table to remove deleted entries
