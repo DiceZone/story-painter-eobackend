@@ -305,6 +305,7 @@ async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[BackupAPI] 请求失败，实际请求地址: ${backupApiUrl}`);
     throw new Error(`Backup API returned status ${response.status}: ${errorText}`);
   }
 
