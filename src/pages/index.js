@@ -12,18 +12,17 @@ export default function HomePage() {
     const fullUrl = `${baseUrl}${path}`;
     navigator.clipboard.writeText(fullUrl)
       .then(() => {
-        alert('API链接已复制到剪贴板！');
+        alert('API链接已复制！');
       })
       .catch(err => {
         console.error('复制失败: ', err);
-        // 降级方案
         const textArea = document.createElement('textarea');
         textArea.value = fullUrl;
         document.body.appendChild(textArea);
         textArea.select();
         document.execCommand('copy');
         document.body.removeChild(textArea);
-        alert('API链接已复制到剪贴板！');
+        alert('API链接已复制！');
       });
   };
 
@@ -38,308 +37,346 @@ export default function HomePage() {
         }
         
         body {
-          background: #f8f9ff;
+          background: #fafbfc;
           min-height: 100vh;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          color: #5a4b6c;
+          color: #24292f;
           line-height: 1.6;
-          padding: 20px;
         }
       `}</style>
       <style jsx>{`
-        .container {
-          max-width: 740px;
-          background: #ffffff;
-          border-radius: 12px;
-          padding: 32px;
-          box-shadow: 0 4px 15px rgba(137, 207, 240, 0.2);
-          margin-bottom: 20px;
-          border: 1px solid #e0f0ff;
-        }
-        
-        .header {
-          border-bottom: 1px solid #e0f0ff;
-          padding-bottom: 1rem;
-          margin-bottom: 2rem;
-        }
-        
-        .title {
-          font-size: 1.7rem;
-          margin-bottom: 16px;
-          color: #5a8de0;
-          text-align: center;
-          font-weight: 600;
-        }
-        
-        .version-badge {
-          display: inline-flex;
+        .navbar {
+          background: #fff;
+          border-bottom: 1px solid #d0d7de;
+          padding: 0 24px;
+          height: 64px;
+          display: flex;
           align-items: center;
-          white-space: nowrap;
-          position: relative;
-          box-sizing: border-box;
-          cursor: default;
-          flex-wrap: nowrap;
-          padding: 4px 10px;
-          border-radius: 8px;
-          color: #00c180;
-          background-color: rgba(99, 226, 183, 0.15);
-          transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          line-height: 1;
-          height: 28px;
-          font-size: 12px;
-          font-weight: 600;
-          letter-spacing: 0.5px;
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         
-        .version-badge:hover {
-          background-color: rgba(99, 226, 183, 0.25);
+        .navbar-brand {
+          font-size: 16px;
+          font-weight: 600;
+          color: #24292f;
+          text-decoration: none;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .navbar-logo {
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        
+        .navbar-logo img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+        
+        .navbar-version {
+          margin-left: 12px;
+          font-size: 12px;
+          color: #57606a;
+          padding: 2px 6px;
+          background: #eaeef2;
+          border-radius: 12px;
+          display: inline-block;
+        }
+        
+        .container {
+          max-width: 1000px;
+          margin: 0 auto;
+          padding: 40px 24px;
+        }
+        
+        .section-title {
+          font-size: 18px;
+          font-weight: 600;
+          margin-bottom: 16px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid #d0d7de;
+          color: #24292f;
         }
         
         .description {
-          font-size: 0.95rem;
-          margin-bottom: 24px;
-          color: #7a6b8d;
-          text-align: center;
-          line-height: 1.7;
+          font-size: 14px;
+          color: #57606a;
+          margin-bottom: 32px;
+          line-height: 1.5;
         }
         
-        .api-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 1rem;
+        .api-list {
+          background: #fff;
+          border: 1px solid #d0d7de;
+          border-radius: 6px;
+          overflow: hidden;
+          margin-bottom: 32px;
         }
         
-        .api-card {
-          background-color: #f5f9ff;
-          border-radius: 8px;
-          padding: 1.5rem;
-          text-align: left;
-          border-left: 4px solid #8bc2f0;
-          box-shadow: 0 2px 4px rgba(137, 207, 240, 0.2);
-          position: relative;
-        }
-        
-        .api-path-container {
+        .api-item {
           display: flex;
+          align-items: flex-start;
+          padding: 16px 24px;
+          border-bottom: 1px solid #d0d7de;
+          gap: 16px;
+        }
+        
+        .api-item:last-child {
+          border-bottom: none;
+        }
+        
+        .api-item:hover {
+          background: #f6f8fb;
+        }
+        
+        .api-method {
+          display: inline-flex;
           align-items: center;
-          justify-content: space-between;
-          margin-bottom: 0.5rem;
+          justify-content: center;
+          width: 48px;
+          height: 28px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          color: #fff;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+        
+        .method-get {
+          background: #0969da;
+        }
+        
+        .method-put {
+          background: #9e6a03;
+        }
+        
+        .method-post {
+          background: #238636;
+        }
+        
+        .api-details {
+          flex: 1;
+          min-width: 0;
         }
         
         .api-path {
           font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-          font-size: 1rem;
+          font-size: 13px;
           font-weight: 600;
-          color: #5a4b6c;
+          color: #24292f;
           word-break: break-all;
-          margin-right: 1rem;
-        }
-        
-        .api-method {
-          display: inline-block;
-          background-color: #6fb3e0;
-          color: #fff;
-          padding: 0.2rem 0.5rem;
-          border-radius: 4px;
-          font-size: 0.8rem;
-          font-weight: bold;
-          margin-left: 0.5rem;
-          white-space: nowrap;
+          margin-bottom: 4px;
+          letter-spacing: 0.2px;
         }
         
         .api-description {
-          font-size: 0.9rem;
-          color: #7a6b8d;
-          margin-top: 0.5rem;
+          font-size: 13px;
+          color: #57606a;
+          margin-bottom: 8px;
+        }
+        
+        .api-url {
+          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+          font-size: 12px;
+          color: #57606a;
+          background: #f6f8fb;
+          padding: 4px 8px;
+          border-radius: 3px;
+          word-break: break-all;
+          border: 1px solid #e1e6eb;
+          padding: 6px 8px;
+          display: inline-block;
+          max-width: 100%;
+        }
+        
+        .api-actions {
+          display: flex;
+          gap: 8px;
+          flex-shrink: 0;
+          margin-top: 2px;
         }
         
         .copy-btn {
-          background: #6fb3e0;
-          border: none;
+          background: #f6f8fb;
+          border: 1px solid #d0d7de;
           border-radius: 4px;
-          color: white;
+          color: #24292f;
           cursor: pointer;
-          padding: 0.4rem 0.8rem;
-          font-size: 0.8rem;
+          padding: 6px 12px;
+          font-size: 12px;
           display: flex;
           align-items: center;
-          gap: 0.3rem;
-          transition: background-color 0.2s;
+          gap: 4px;
+          transition: all 0.2s;
           white-space: nowrap;
-          flex-shrink: 0;
+          font-weight: 500;
         }
         
         .copy-btn:hover {
-          background: #5a9fd0;
+          background: #eaeef2;
+          border-color: #bec3cc;
         }
         
         .copy-btn:active {
           transform: scale(0.98);
         }
         
-        .api-full-url {
-          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-          font-size: 0.9rem;
-          color: #7a6b8d;
-          background: #f0f5ff;
-          padding: 0.5rem 0.8rem;
-          border-radius: 4px;
-          margin-top: 0.8rem;
-          word-break: break-all;
-          border: 1px solid #e0f0ff;
-          display: block;
-        }
-        
-        .github-section {
+        .footer {
           text-align: center;
-          margin-top: 2rem;
+          margin-top: 48px;
+          padding-top: 24px;
+          border-top: 1px solid #d0d7de;
         }
         
         .github-btn {
           display: inline-flex;
           align-items: center;
-          gap: 0.5rem;
-          background: #333;
+          gap: 6px;
+          background: #24292f;
           color: white;
           text-decoration: none;
-          padding: 0.3rem 0.7rem;
-          border-radius: 6px;
-          font-size: 0.9rem;
-          transition: background-color 0.2s;
+          padding: 6px 12px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-weight: 500;
+          transition: background 0.2s;
         }
         
         .github-btn:hover {
-          background: #555;
+          background: #3d444d;
         }
         
-        .url-container {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-top: 0.8rem;
-        }
-        
-        .api-full-url {
-          flex: 1;
-          margin-top: 0;
-          margin-right: 0.8rem;
-        }
-        
-        @media (max-width: 600px) {
+        @media (max-width: 640px) {
+          .navbar {
+            padding: 0 16px;
+          }
+          
           .container {
-              padding: 20px;
-              margin: 1rem;
+            padding: 24px 16px;
           }
           
-          .title {
-              font-size: 1.4rem;
+          .api-item {
+            flex-direction: column;
+            padding: 12px 16px;
           }
           
-          .api-path-container {
-              flex-direction: column;
-              align-items: flex-start;
-              gap: 0.5rem;
-          }
-          
-          .url-container {
-              flex-direction: column;
-              align-items: flex-start;
-              gap: 0.5rem;
-          }
-          
-          .api-full-url {
-              margin-right: 0;
-              width: 100%;
+          .api-actions {
+            width: 100%;
           }
           
           .copy-btn {
-              align-self: flex-end;
-          }
-          
-          .api-full-url {
-              font-size: 0.85rem;
-              padding: 0.4rem 0.6rem;
+            flex: 1;
+            justify-content: center;
           }
         }
       `}</style>
+      <nav className="navbar">
+        <a href="/" className="navbar-brand">
+          <span className="navbar-logo">
+            <img src="/icon.png" alt="SealDice Logo" />
+          </span>
+          SealDice Log Service
+          <span className="navbar-version">v20260222-beta0340</span>
+        </a>
+      </nav>
+      
       <div className="container">
-        <div className="header">
-          <h1 className="title">SealDice Log Service</h1>
-          <div style={{ textAlign: 'center' }}>
-            <span className="version-badge">v20260222-beta0130</span>
-          </div>
-        </div>
         <p className="description">
           用于对接海豹骰子（SealDice）的自维护日志存储后端服务。
         </p>
-        <div className="api-grid">
-          <div className="api-card">
-            <div className="api-path-container">
-              <div>
-                <span className="api-path">/api/dice/log</span>
-                <span className="api-method">PUT</span>
-              </div>
+        
+        <h2 className="section-title">API 端点</h2>
+        
+        <div className="api-list">
+          <div className="api-item">
+            <div className={`api-method method-put`}>PUT</div>
+            <div className="api-details">
+              <div className="api-path">/api/dice/log</div>
+              <div className="api-description">上传日志文件</div>
+              {baseUrl && (
+                <div className="api-url">{baseUrl}/api/dice/log</div>
+              )}
             </div>
-            <p className="api-description">上传日志文件。</p>
-            {baseUrl && (
-              <div className="url-container">
-                <div className="api-full-url">
-                  {baseUrl}/api/dice/log
-                </div>
-                <button 
-                  className="copy-btn" 
-                  onClick={() => copyToClipboard('/api/dice/log')}
-                  title="复制完整API链接"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                  复制
-                </button>
-              </div>
-            )}
+            <div className="api-actions">
+              <button 
+                className="copy-btn" 
+                onClick={() => copyToClipboard('/api/dice/log')}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                复制
+              </button>
+            </div>
           </div>
-          <div className="api-card">
-            <div className="api-path-container">
-              <div>
-                <span className="api-path">/api/dice/load_data</span>
-                <span className="api-method">GET</span>
-              </div>
+          
+          <div className="api-item">
+            <div className={`api-method method-get`}>GET</div>
+            <div className="api-details">
+              <div className="api-path">/api/dice/load_data</div>
+              <div className="api-description">根据 Key 和 Password 读取日志数据</div>
+              {baseUrl && (
+                <div className="api-url">{baseUrl}/api/dice/load_data</div>
+              )}
             </div>
-            <p className="api-description">根据 Key 和 Password 读取日志数据。</p>
-            {baseUrl && (
-              <div className="url-container">
-                <div className="api-full-url">
-                  {baseUrl}/api/dice/load_data
-                </div>
-                <button 
-                  className="copy-btn" 
-                  onClick={() => copyToClipboard('/api/dice/load_data')}
-                  title="复制完整API链接"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                  复制
-                </button>
-              </div>
-            )}
+            <div className="api-actions">
+              <button 
+                className="copy-btn" 
+                onClick={() => copyToClipboard('/api/dice/load_data')}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                复制
+              </button>
+            </div>
+          </div>
+          
+          <div className="api-item">
+            <div className={`api-method method-put`}>PUT</div>
+            <div className="api-details">
+              <div className="api-path">/api/dice/backup-upload</div>
+              <div className="api-description">备用上传接口，用于主存储失败时的级联转发</div>
+              {baseUrl && (
+                <div className="api-url">{baseUrl}/api/dice/backup-upload</div>
+              )}
+            </div>
+            <div className="api-actions">
+              <button 
+                className="copy-btn" 
+                onClick={() => copyToClipboard('/api/dice/backup-upload')}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                复制
+              </button>
+            </div>
           </div>
         </div>
         
-        <div className="github-section">
+        <div className="footer">
           <a 
             href="https://github.com/ShiaBox/story-painter-backend" 
             className="github-btn"
             target="_blank"
             rel="noopener noreferrer"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
             </svg>
             源码

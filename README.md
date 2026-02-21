@@ -8,6 +8,7 @@
 
 ## 接口
 - PUT /api/dice/log（multipart/form-data：name，uniform_id=xxx:数字，file<5MB）
+- PUT /api/dice/backup-upload（备用上传，主存储失败时自动调用）
 - GET /api/dice/load_data?key=AbCd&password=123456
 - 成功返回示例：{"url":"https://your-frontend.example.com/?key=AbCd#123456"}
 
@@ -19,6 +20,19 @@
   FRONTEND_URL=https://your-frontend.example.com/
 - 或：编辑文件 config/appConfig.js
   export const FRONTEND_URL = 'https://your-frontend.example.com/';
+
+## 备用上传API（可选）
+配置备用API实现日志上传高可用，当主存储失败时自动转发到备用服务器。
+
+优先级：部署时设置环境变量 BACKUP_UPLOAD_API > 文件 config/appConfig.js
+
+- 部署时变量（推荐）
+  BACKUP_UPLOAD_API=https://backup-server.example.com/api/dice/backup-upload
+- 或：编辑文件 config/appConfig.js
+  export const BACKUP_UPLOAD_API = 'https://backup-server.example.com/api/dice/backup-upload';
+
+**级联支持**  
+同一套代码可部署在多个服务器上，形成链式备用关系：主服务器 → 备用服务器1 → 备用服务器2 → ...
 
 ## 日志保留策略（可选）
 为了防止 KV 存储容量溢出，系统支持自动清理过期日志。
