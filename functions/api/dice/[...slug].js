@@ -286,23 +286,38 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @returns {Promise<object>} Response from backup API
  */
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Send as FormData to backup API
-  const formData = new FormData();
-  formData.append('uniform_id', uniform_id);
-  formData.append('name', name);
-  formData.append('logdata', logdata);
+  // Send as JSON to backup API
+  const payload = {
+    uniform_id,
+    name,
+    logdata
+  };
   
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
-    body: formData
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
   
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${errorText}`);
+  let responseBody;
+  try {
+    responseBody = await response.text();
+  } catch (e) {
+    responseBody = '';
   }
   
-  return await response.json();
+  if (!response.ok) {
+    throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${responseBody}`);
+  }
+  
+  // Try to parse as JSON, if it fails just return the text
+  try {
+    return JSON.parse(responseBody);
+  } catch (e) {
+    return { url: responseBody };
+  }
 }
 
 const getCorsHeaders = (frontendUrl, methods = 'GET, PUT, OPTIONS') => ({
