@@ -304,12 +304,18 @@ async function uploadToBackupApi(backupApiUrl, uniform_id, name, file) {
     headers: headers
   });
 
+  if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${errorText}`);
   }
 
   return await response.json();
 }
+
+export default async function(request, env) {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
+  const searchParams = url.searchParams;
 
   // Log all requests for debugging
   console.log(`[DEBUG] Request: ${request.method} ${pathname}`);
