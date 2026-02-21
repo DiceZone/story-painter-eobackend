@@ -226,6 +226,9 @@ const getCorsHeaders = (frontendUrl, methods = 'GET, PUT, OPTIONS') => ({
 export async function onRequest({ request, env }) {
   const { pathname, searchParams } = new URL(request.url);
 
+  // Log all requests for debugging
+  console.log(`[DEBUG] Request: ${request.method} ${pathname}`);
+
   let FRONTEND_URL;
   try {
     FRONTEND_URL = await resolveFrontendUrl(env);
@@ -244,7 +247,8 @@ export async function onRequest({ request, env }) {
   }
 
   // --- Route 1: Upload Log ---
-  if (pathname.endsWith('/api/dice/log') && request.method === 'PUT') {
+  if ((pathname === '/api/dice/log' || pathname.endsWith('/api/dice/log')) && request.method === 'PUT') {
+    console.log('[ROUTE] Matched: Upload Log');
     try {
       const contentLength = request.headers.get('Content-Length');
       if (contentLength && parseInt(contentLength, 10) > FILE_SIZE_LIMIT_MB * 1024 * 1024) {
@@ -345,7 +349,8 @@ export async function onRequest({ request, env }) {
   }
 
   // --- Route 2: Load Log Data ---
-  if (pathname.endsWith('/api/dice/load_data') && request.method === 'GET') {
+  if ((pathname === '/api/dice/load_data' || pathname.endsWith('/api/dice/load_data')) && request.method === 'GET') {
+    console.log('[ROUTE] Matched: Load Log Data');
     try {
       const key = searchParams.get("key");
       const password = searchParams.get("password");
@@ -381,5 +386,6 @@ export async function onRequest({ request, env }) {
   }
 
   // --- Fallback: Not Found ---
+  console.log(`[FALLBACK] No route matched for: ${request.method} ${pathname}`);
   return new Response('访问的API接口不存在或方式错误，检查API设置是否正确', { status: 404 });
 }
