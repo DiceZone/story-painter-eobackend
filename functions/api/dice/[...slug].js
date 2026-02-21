@@ -279,38 +279,29 @@ const FILE_SIZE_LIMIT_MB = 5;
 
 /**
  * Upload log to backup API endpoint
- * @param {string} backupApiUrl - The backup API full endpoint URL (including /api/dice/log)
+ * @param {string} backupApiUrl - The backup API endpoint URL
  * @param {string} uniform_id - The uniform ID from the request
  * @param {string} name - The log name
  * @param {string} logdata - Base64 encoded log data
  * @returns {Promise<object>} Response from backup API
  */
-const fetch = require('node-fetch');
-const FormData = require('form-data');
-
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Decode base64 logdata back to buffer
-  const buffer = Buffer.from(logdata, 'base64');
-  
-  // Send as FormData to backup API (with boundary), matching main API format
+  // Send as FormData to backup API
   const formData = new FormData();
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
-  formData.append('file', buffer, { filename: 'log.txt' });  // Append as file field
-
-  const headers = formData.getHeaders();
-
+  formData.append('logdata', logdata);
+  
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
-    headers,
     body: formData
   });
-
+  
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${errorText}`);
   }
-
+  
   return await response.json();
 }
 
