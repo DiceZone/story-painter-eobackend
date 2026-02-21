@@ -600,9 +600,11 @@ export async function onRequest({ request, env }) {
         );
       }
 
+      const retentionDays = getLogRetentionDays(env);
       const password = Math.floor(Math.random() * (999999 - 100000 + 1) + 100000);
       const key = generateRandomString(4);
       const storageKey = `${key}#${password}`;
+      let backupUploadSuccess = false;
       const backupLogContent = JSON.stringify({
         client: "SealDice",
         created_at: new Date().toISOString(),
@@ -616,6 +618,22 @@ export async function onRequest({ request, env }) {
         // Try to store in own KV
         await XBSKV.put(storageKey, backupLogContent);
         console.log(`Backup Upload: Successfully saved with key: ${storageKey}`);
+
+        // Add to index table
+        await addToIndexTable(XBSKV, storageKey);
+        console.log(`Backup Upload: Added to index table successfully`);
+        backupUploadSuccess = true;
+
+        // Continue with background cleanup for expired logs (async, doesn't block)
+        cleanupOldLogsViaIndex(XBSKV, retentionDays)
+          .then(result => {
+            if (result.deletedCount > 0) {
+              console.log(`Backup Upload: Background cleanup deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
+            }
+          })
+          .catch(err => {
+            console.error(`Backup Upload: Background cleanup failed (non-critical): ${err.message}`);
+          });
 
         const responsePayload = { url: `${FRONTEND_URL}?key=${key}#${password}` };
 
