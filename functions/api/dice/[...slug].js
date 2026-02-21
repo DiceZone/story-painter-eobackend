@@ -62,46 +62,135 @@ async function cleanupOldLogs(kvStorage, retentionDays) {
   let processedCount = 0;
   
   try {
-    // List all keys in KV storage
-    const keysIterator = await kvStorage.list();
-    
-    if (!keysIterator || !keysIterator.keys) {
-      // If list() returns an iterator, handle it properly
-      console.log('Cleanup: KV list() returned iterator');
-      return { deletedCount: 0, processedCount: 0, message: 'No iterator support' };
-    }
-    
-    // Iterate through all keys
-    for (const keyObj of keysIterator.keys) {
-      const key = keyObj.name;
-      processedCount++;
+    // List all keys in KV storage with pagination
+    let result;
+    let cursor;
+    do {
+      result = await kvStorage.list({ cursor });
       
-      try {
-        // Get the stored data
-        const storedDataStr = await kvStorage.get(key);
-        
-        if (storedDataStr) {
-          const storedData = JSON.parse(storedDataStr);
-          
-          // Check if the log was created before the cutoff date
-          if (storedData.created_at && new Date(storedData.created_at) < cutoffDate) {
-            // Delete the old log
-            await kvStorage.delete(key);
-            deletedCount++;
-            console.log(`Cleanup: Deleted old log key: ${key}`);
-          }
-        }
-      } catch (err) {
-        console.log(`Cleanup: Error processing key ${key}: ${err.message}`);
-        // Continue with next key even if one fails
+      if (!result || !result.keys) {
+        console.log('Cleanup: No keys found');
+        break;
       }
-    }
+      
+      // Iterate through keys in current page
+      for (const keyObj of result.keys) {
+        const key = keyObj.key;
+        processedCount++;
+        
+        try {
+          // Get the stored data
+          const storedDataStr = await kvStorage.get(key);
+          
+          if (storedDataStr) {
+            const storedData = JSON.parse(storedDataStr);
+            
+            // Check if the log was created before the cutoff date
+            if (storedData.created_at && new Date(storedData.created_at) < cutoffDate) {
+              // Delete the old log
+              await kvStorage.delete(key);
+              deletedCount++;
+              console.log(`Cleanup: Deleted old log key: ${key}`);
+            }
+          }
+        } catch (err) {
+          console.log(`Cleanup: Error processing key ${key}: ${err.message}`);
+          // Continue with next key even if one fails
+        }
+      }
+      
+      cursor = result.cursor;
+    } while (result && !result.complete);
+    
   } catch (err) {
     console.error(`Cleanup: Error during cleanup process: ${err.message}`);
     // Return partial results - cleanup failure shouldn't block the upload
   }
   
   return { deletedCount, processedCount, retentionDays };
+}
+
+/**
+ * Quick cleanup with timeout - deletes oldest logs up to 5 second timeout
+ * Used when KV storage is full to make room for new uploads
+ * @param {object} kvStorage - The KV storage object (XBSKV)
+ * @param {number} timeoutMs - Timeout in milliseconds (default 5000ms)
+ * @returns {Promise<object>} Summary of deleted logs
+ */
+async function cleanupOldLogsQuick(kvStorage, timeoutMs = 5000) {
+  let deletedCount = 0;
+  let processedCount = 0;
+  const startTime = Date.now();
+  
+  try {
+    // List all keys in KV storage with pagination
+    const keysWithData = [];
+    let result;
+    let cursor;
+    
+    do {
+      if (Date.now() - startTime > timeoutMs) {
+        console.log(`QuickCleanup: Timeout reached after collecting ${processedCount} keys`);
+        break;
+      }
+      
+      result = await kvStorage.list({ cursor });
+      
+      if (!result || !result.keys) {
+        console.log('QuickCleanup: No keys found');
+        break;
+      }
+      
+      // Collect keys with their creation dates
+      for (const keyObj of result.keys) {
+        if (Date.now() - startTime > timeoutMs) {
+          console.log(`QuickCleanup: Timeout reached after processing ${processedCount} keys`);
+          break;
+        }
+        
+        const key = keyObj.key;
+        processedCount++;
+        
+        try {
+          const storedDataStr = await kvStorage.get(key);
+          if (storedDataStr) {
+            const storedData = JSON.parse(storedDataStr);
+            keysWithData.push({
+              key,
+              createdAt: new Date(storedData.created_at || Date.now())
+            });
+          }
+        } catch (err) {
+          console.log(`QuickCleanup: Error processing key ${key}: ${err.message}`);
+        }
+      }
+      
+      cursor = result.cursor;
+    } while (result && !result.complete && Date.now() - startTime < timeoutMs);
+    
+    // Sort by created_at (oldest first) and delete oldest entries
+    keysWithData.sort((a, b) => a.createdAt - b.createdAt);
+    
+    // Delete oldest logs until timeout
+    for (const {key} of keysWithData) {
+      if (Date.now() - startTime > timeoutMs) {
+        console.log(`QuickCleanup: Timeout reached, deleted ${deletedCount} logs`);
+        break;
+      }
+      
+      try {
+        await kvStorage.delete(key);
+        deletedCount++;
+        console.log(`QuickCleanup: Deleted old log key: ${key}`);
+      } catch (err) {
+        console.log(`QuickCleanup: Error deleting key ${key}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    console.error(`QuickCleanup: Error during quick cleanup: ${err.message}`);
+  }
+  
+  return { deletedCount, processedCount, timeoutMs };
 }
 
 function normalize(url) {
@@ -193,21 +282,54 @@ export async function onRequest({ request, env }) {
       const password = Math.floor(Math.random() * (999999 - 100000 + 1) + 100000);
       const key = generateRandomString(4);
       const storageKey = `${key}#${password}`;
+      const logContent = JSON.stringify(generateStorageData(logdata, name));
 
-      // Use the global XBSKV variable
-      await XBSKV.put(storageKey, JSON.stringify(generateStorageData(logdata, name)));
-
-      // Clean up old logs asynchronously
+      // Try to upload the log
+      let uploadSuccess = false;
       const retentionDays = getLogRetentionDays(env);
-      cleanupOldLogs(XBSKV, retentionDays)
-        .then(result => {
-          if (result.deletedCount > 0) {
-            console.log(`Log cleanup completed: deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
+      
+      try {
+        // Attempt first upload
+        await XBSKV.put(storageKey, logContent);
+        uploadSuccess = true;
+        console.log(`Upload: Successfully saved log with key: ${storageKey}`);
+      } catch (uploadError) {
+        // Check if the error is due to KV storage limit
+        if (uploadError.message && uploadError.message.includes('limit exceeded')) {
+          console.log('Upload: KV storage limit exceeded, executing quick cleanup...');
+          
+          try {
+            // Quick cleanup with 5 second timeout
+            const cleanupResult = await cleanupOldLogsQuick(XBSKV, 5000);
+            console.log(`Upload: Quick cleanup completed - deleted ${cleanupResult.deletedCount} logs`);
+            
+            // Retry upload after cleanup
+            await XBSKV.put(storageKey, logContent);
+            uploadSuccess = true;
+            console.log(`Upload: Successfully saved log after cleanup with key: ${storageKey}`);
+          } catch (retryError) {
+            console.error('Upload: Failed to upload after cleanup attempt:', retryError.message);
+            throw retryError;
           }
-        })
-        .catch(err => {
-          console.error(`Log cleanup failed (non-critical): ${err.message}`);
-        });
+        } else {
+          // Not a storage limit error, re-throw
+          throw uploadError;
+        }
+      }
+
+      // Continue with background cleanup for expired logs
+      // This runs asynchronously and doesn't block the response
+      if (uploadSuccess) {
+        cleanupOldLogs(XBSKV, retentionDays)
+          .then(result => {
+            if (result.deletedCount > 0) {
+              console.log(`Background cleanup: deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
+            }
+          })
+          .catch(err => {
+            console.error(`Background cleanup failed (non-critical): ${err.message}`);
+          });
+      }
 
       const responsePayload = { url: `${FRONTEND_URL}?key=${key}#${password}` };
 
