@@ -123,28 +123,37 @@ async function cleanupOldLogsQuick(kvStorage, timeoutMs = 5000) {
   const startTime = Date.now();
   
   try {
+    console.log(`QuickCleanup: Starting quick cleanup with ${timeoutMs}ms timeout`);
+    
     // List all keys in KV storage with pagination
     const keysWithData = [];
     let result;
     let cursor;
+    let pageCount = 0;
     
     do {
-      if (Date.now() - startTime > timeoutMs) {
-        console.log(`QuickCleanup: Timeout reached after collecting ${processedCount} keys`);
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime > timeoutMs) {
+        console.log(`QuickCleanup: Timeout reached (${elapsedTime}ms) after collecting keys from ${pageCount} pages`);
         break;
       }
       
-      result = await kvStorage.list({ cursor });
+      console.log(`QuickCleanup: Fetching page ${pageCount + 1}...`);
+      result = await kvStorage.list({ cursor, limit: 256 });
+      pageCount++;
       
-      if (!result || !result.keys) {
-        console.log('QuickCleanup: No keys found');
-        break;
+      if (!result || !result.keys || result.keys.length === 0) {
+        console.log(`QuickCleanup: No keys found on page ${pageCount}`);
+        if (!result || result.complete) break;
+      } else {
+        console.log(`QuickCleanup: Found ${result.keys.length} keys on page ${pageCount}`);
       }
       
       // Collect keys with their creation dates
-      for (const keyObj of result.keys) {
-        if (Date.now() - startTime > timeoutMs) {
-          console.log(`QuickCleanup: Timeout reached after processing ${processedCount} keys`);
+      for (const keyObj of (result?.keys || [])) {
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime > timeoutMs) {
+          console.log(`QuickCleanup: Timeout reached while processing keys`);
           break;
         }
         
@@ -154,7 +163,7 @@ async function cleanupOldLogsQuick(kvStorage, timeoutMs = 5000) {
         try {
           const storedDataStr = await kvStorage.get(key);
           if (storedDataStr) {
-            const storedData = JSON.parse(storedDataStr);
+            const storedData = typeof storedDataStr === 'string' ? JSON.parse(storedDataStr) : storedDataStr;
             keysWithData.push({
               key,
               createdAt: new Date(storedData.created_at || Date.now())
@@ -165,27 +174,39 @@ async function cleanupOldLogsQuick(kvStorage, timeoutMs = 5000) {
         }
       }
       
-      cursor = result.cursor;
-    } while (result && !result.complete && Date.now() - startTime < timeoutMs);
+      cursor = result?.cursor;
+      if (!result || result.complete) {
+        console.log(`QuickCleanup: List complete`);
+        break;
+      }
+    } while (cursor && Date.now() - startTime < timeoutMs);
+    
+    console.log(`QuickCleanup: Collected ${keysWithData.length} keys to evaluate`);
     
     // Sort by created_at (oldest first) and delete oldest entries
     keysWithData.sort((a, b) => a.createdAt - b.createdAt);
     
+    console.log(`QuickCleanup: Starting deletion of old keys...`);
+    
     // Delete oldest logs until timeout
-    for (const {key} of keysWithData) {
-      if (Date.now() - startTime > timeoutMs) {
-        console.log(`QuickCleanup: Timeout reached, deleted ${deletedCount} logs`);
+    for (const {key, createdAt} of keysWithData) {
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime > timeoutMs) {
+        console.log(`QuickCleanup: Timeout reached after deleting ${deletedCount} logs`);
         break;
       }
       
       try {
         await kvStorage.delete(key);
         deletedCount++;
-        console.log(`QuickCleanup: Deleted old log key: ${key}`);
+        console.log(`QuickCleanup: Deleted key: ${key} (created: ${createdAt.toISOString()})`);
       } catch (err) {
         console.log(`QuickCleanup: Error deleting key ${key}: ${err.message}`);
       }
     }
+    
+    const totalTime = Date.now() - startTime;
+    console.log(`QuickCleanup: Completed in ${totalTime}ms - deleted ${deletedCount}/${keysWithData.length} keys`);
   } catch (err) {
     console.error(`QuickCleanup: Error during quick cleanup: ${err.message}`);
   }
@@ -298,25 +319,36 @@ export async function onRequest({ request, env }) {
         uploadSuccess = true;
         console.log(`Upload: Successfully saved log with key: ${storageKey}`);
       } catch (uploadError) {
+        // Better error logging
+        const errorMsg = String(uploadError?.message || uploadError?.toString() || 'Unknown error');
+        const errorStr = JSON.stringify(uploadError, null, 2);
+        console.error(`Upload Error Details:`, errorStr);
+        console.error(`Upload Error Message: ${errorMsg}`);
+        
         // Check if the error is due to KV storage limit
-        if (uploadError.message && uploadError.message.includes('limit exceeded')) {
+        if (errorMsg.includes('limit exceeded') || errorMsg.includes('quota') || errorMsg.includes('exceeded')) {
           console.log('Upload: KV storage limit exceeded, executing quick cleanup...');
           
           try {
             // Quick cleanup with 5 second timeout
             const cleanupResult = await cleanupOldLogsQuick(XBSKV, 5000);
-            console.log(`Upload: Quick cleanup completed - deleted ${cleanupResult.deletedCount} logs`);
+            console.log(`Upload: Quick cleanup completed - deleted ${cleanupResult.deletedCount} logs, processed ${cleanupResult.processedCount}`);
+            
+            // Wait a moment before retrying
+            await new Promise(resolve => setTimeout(resolve, 500));
             
             // Retry upload after cleanup
             await XBSKV.put(storageKey, logContent);
             uploadSuccess = true;
             console.log(`Upload: Successfully saved log after cleanup with key: ${storageKey}`);
           } catch (retryError) {
-            console.error('Upload: Failed to upload after cleanup attempt:', retryError.message);
-            throw retryError;
+            const retryMsg = String(retryError?.message || retryError?.toString() || 'Unknown error');
+            console.error('Upload: Failed to upload after cleanup attempt:', retryMsg);
+            throw new Error(`Upload failed even after cleanup: ${retryMsg}`);
           }
         } else {
           // Not a storage limit error, re-throw
+          console.error('Upload: Non-storage error, re-throwing:', errorMsg);
           throw uploadError;
         }
       }
@@ -348,7 +380,45 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  // --- Route 2: Load Log Data ---
+  // --- Route 2: Cleanup Logs ---
+  if ((pathname === '/api/dice/cleanup' || pathname.endsWith('/api/dice/cleanup')) && (request.method === 'GET' || request.method === 'POST')) {
+    console.log('[ROUTE] Matched: Cleanup Logs');
+    try {
+      const retentionDays = getLogRetentionDays(env);
+      console.log(`Cleanup: Starting full cleanup with retention: ${retentionDays} days`);
+      
+      const cleanupResult = await cleanupOldLogs(XBSKV, retentionDays);
+      
+      const responsePayload = {
+        success: true,
+        message: `Cleanup completed: deleted ${cleanupResult.deletedCount} logs out of ${cleanupResult.processedCount} processed`,
+        deletedCount: cleanupResult.deletedCount,
+        processedCount: cleanupResult.processedCount,
+        retentionDays: cleanupResult.retentionDays,
+        timestamp: new Date().toISOString()
+      };
+      
+      console.log(`Cleanup: ${responsePayload.message}`);
+      
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      const errorResponse = {
+        success: false,
+        error: error.message || 'Unknown error',
+        timestamp: new Date().toISOString()
+      };
+      return new Response(JSON.stringify(errorResponse), {
+        status: 500,
+        headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // --- Route 3: Load Log Data ---
   if ((pathname === '/api/dice/load_data' || pathname.endsWith('/api/dice/load_data')) && request.method === 'GET') {
     console.log('[ROUTE] Matched: Load Log Data');
     try {
