@@ -294,7 +294,7 @@ async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
   };
   
   const response = await fetch(backupApiUrl, {
-    method: 'POST',
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/json'
     },
