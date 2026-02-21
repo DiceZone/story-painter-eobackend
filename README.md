@@ -20,6 +20,22 @@
 - 或：编辑文件 config/appConfig.js
   export const FRONTEND_URL = 'https://your-frontend.example.com/';
 
+## 日志保留策略（可选）
+为了防止 KV 存储容量溢出，系统支持自动清理过期日志。
+
+优先级：部署时设置环境变量 LOG_RETENTION_DAYS > 文件 config/appConfig.js > 默认值（30天）
+
+- 部署时变量（推荐）
+  LOG_RETENTION_DAYS=60（保留 60 天的日志）
+- 或：编辑文件 config/appConfig.js
+  export const LOG_RETENTION_DAYS = 60;
+
+**工作机制**
+- 用户每次上传日志时，后端会自动扫描 KV 存储中的所有日志
+- 删除超过指定天数的旧日志
+- 清理过程异步执行，不会影响用户的上传响应
+- 清理结果记录在后端日志中
+
 ## 部署到EdgeOne Pages
 ### 部署后端
 - Fork 本项目
