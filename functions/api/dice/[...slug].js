@@ -69,29 +69,49 @@ async function getIndexTable(kvStorage) {
 }
 
 /**
- * Update the index table with a new log entry
+ * Update the index table with a new log entry (read-modify-write with version check)
  * @param {object} kvStorage - The KV storage object (XBSKV)
  * @param {string} key - The storage key of the new log
  * @returns {Promise<void>}
  */
 async function addToIndexTable(kvStorage, key) {
-  try {
-    const index = await getIndexTable(kvStorage);
-    const newEntry = {
-      key: key,
-      created_at: new Date().toISOString()
-    };
-    
-    // Avoid duplicates
-    if (!index.logs.some(log => log.key === key)) {
+  const maxRetries = 3;
+  let retries = 0;
+  
+  while (retries < maxRetries) {
+    try {
+      const index = await getIndexTable(kvStorage);
+      const newEntry = {
+        key: key,
+        created_at: new Date().toISOString()
+      };
+      
+      // Avoid duplicates
+      if (index.logs.some(log => log.key === key)) {
+        console.log(`addToIndexTable: ${key} already exists in index`);
+        return;
+      }
+      
       index.logs.push(newEntry);
       index.lastUpdated = new Date().toISOString();
+      
+      // Try to write the updated index
       await kvStorage.put(INDEX_KEY, JSON.stringify(index));
       console.log(`addToIndexTable: Added ${key} to index`);
+      return;  // Success
+      
+    } catch (err) {
+      retries++;
+      console.error(`addToIndexTable: Error updating index (attempt ${retries}/${maxRetries}): ${err.message}`);
+      
+      if (retries < maxRetries) {
+        // Wait a bit before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 100 * retries));
+      } else {
+        // Give up after max retries
+        throw new Error(`Failed to add to index after ${maxRetries} attempts: ${err.message}`);
+      }
     }
-  } catch (err) {
-    console.error(`addToIndexTable: Error updating index: ${err.message}`);
-    throw err;
   }
 }
 
@@ -158,15 +178,35 @@ async function cleanupOldLogsViaIndex(kvStorage, retentionDays) {
       addLog(`Successfully deleted ${deletedCount} logs`);
     }
     
-    // Update the index table to remove deleted entries
+    // Update the index table to remove deleted entries (with retry)
     if (deletedCount > 0) {
-      const newIndex = {
-        ...index,
-        logs: index.logs.filter(log => !keysToDelete.includes(log.key)),
-        lastUpdated: new Date().toISOString()
-      };
-      await kvStorage.put(INDEX_KEY, JSON.stringify(newIndex));
-      addLog(`Updated index table, removed ${deletedCount} entries`);
+      let updateSuccess = false;
+      let retries = 0;
+      const maxRetries = 3;
+      
+      while (retries < maxRetries && !updateSuccess) {
+        try {
+          const freshIndex = await getIndexTable(kvStorage);
+          const newIndex = {
+            ...freshIndex,
+            logs: freshIndex.logs.filter(log => !keysToDelete.includes(log.key)),
+            lastUpdated: new Date().toISOString()
+          };
+          await kvStorage.put(INDEX_KEY, JSON.stringify(newIndex));
+          updateSuccess = true;
+          addLog(`Updated index table, removed ${deletedCount} entries`);
+        } catch (err) {
+          retries++;
+          addLog(`WARNING: Failed to update index (attempt ${retries}/${maxRetries}): ${err.message}`);
+          if (retries < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 100 * retries));
+          }
+        }
+      }
+      
+      if (!updateSuccess) {
+        addLog(`ERROR: Could not update index table after ${maxRetries} attempts`);
+      }
     }
     
     addLog(`Cleanup completed: deleted ${deletedCount} logs from ${processedCount} total`);
@@ -190,7 +230,17 @@ function normalize(url) {
   const withProtocol = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   return withProtocol.replace(/\/+$/, '/');
 }
-import { FRONTEND_URL as CFG_URL, LOG_RETENTION_DAYS as CFG_LOG_RETENTION_DAYS } from '../../../config/appConfig.js';
+
+function normalizeBackupApi(url) {
+  if (typeof url !== 'string' || !url) {
+    return null;  // Backup API is optional
+  }
+  const withProtocol = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  return withProtocol.replace(/\/+$/, '/');
+}
+
+import { FRONTEND_URL as CFG_URL, LOG_RETENTION_DAYS as CFG_LOG_RETENTION_DAYS, BACKUP_UPLOAD_API as CFG_BACKUP_UPLOAD_API } from '../../../config/appConfig.js';
+
 async function resolveFrontendUrl(env) {
   const runtimeVar =
     (typeof globalThis !== 'undefined' && globalThis.FRONTEND_URL) ||
@@ -200,7 +250,48 @@ async function resolveFrontendUrl(env) {
   if (typeof CFG_URL !== 'undefined' && CFG_URL) return normalize(CFG_URL);
   throw new Error('未配置前端地址参数FRONTEND_URL，请设置运行时的变量或编辑 config/appConfig.js 添加用于导出前端地址的参数 FRONTEND_URL。FRONTEND_URL is not configured. Please set runtime variable FRONTEND_URL or edit config/appConfig.js to export FRONTEND_URL.');
 }
+
+async function resolveBackupApi(env) {
+  const runtimeVar =
+    (typeof globalThis !== 'undefined' && globalThis.BACKUP_UPLOAD_API) ||
+    (typeof process !== 'undefined' && process.env && process.env.BACKUP_UPLOAD_API);
+  if (runtimeVar) return normalizeBackupApi(runtimeVar);
+  if (env && env.BACKUP_UPLOAD_API) return normalizeBackupApi(env.BACKUP_UPLOAD_API);
+  if (typeof CFG_BACKUP_UPLOAD_API !== 'undefined' && CFG_BACKUP_UPLOAD_API) return normalizeBackupApi(CFG_BACKUP_UPLOAD_API);
+  return null;  // Backup API is optional
+}
 const FILE_SIZE_LIMIT_MB = 5;
+
+/**
+ * Upload log to backup API endpoint
+ * @param {string} backupApiUrl - The backup API endpoint URL
+ * @param {string} uniform_id - The uniform ID from the request
+ * @param {string} name - The log name
+ * @param {string} logdata - Base64 encoded log data
+ * @returns {Promise<object>} Response from backup API
+ */
+async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
+  const payload = {
+    uniform_id: uniform_id,
+    name: name,
+    logdata: logdata,
+    timestamp: new Date().toISOString()
+  };
+  
+  const response = await fetch(backupApiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Backup API returned status ${response.status}`);
+  }
+  
+  return await response.json();
+}
 
 const getCorsHeaders = (frontendUrl, methods = 'GET, PUT, OPTIONS') => ({
   'Access-Control-Allow-Origin': frontendUrl.slice(0, -1),
@@ -280,7 +371,9 @@ export async function onRequest({ request, env }) {
 
       // Try to upload the log
       let uploadSuccess = false;
+      let uploadedToBackup = false;
       const retentionDays = getLogRetentionDays(env);
+      const backupApiUrl = await resolveBackupApi(env);
       
       try {
         // Attempt upload
@@ -288,13 +381,10 @@ export async function onRequest({ request, env }) {
         uploadSuccess = true;
         console.log(`Upload: Successfully saved log with key: ${storageKey}`);
         
-        // Add to index table immediately after successful upload
-        try {
-          await addToIndexTable(XBSKV, storageKey);
-        } catch (indexErr) {
-          console.error(`Upload: Failed to update index table: ${indexErr.message}`);
-          // Continue anyway, the log is already saved
-        }
+        // Synchronously add to index table immediately after successful upload
+        // This must complete before returning response or starting cleanup
+        await addToIndexTable(XBSKV, storageKey);
+        console.log(`Upload: Added to index table successfully`);
         
       } catch (uploadError) {
         // Better error logging
@@ -307,6 +397,7 @@ export async function onRequest({ request, env }) {
         if (errorMsg.includes('limit exceeded') || errorMsg.includes('quota') || errorMsg.includes('exceeded')) {
           console.log('Upload: KV storage limit exceeded, need to cleanup old logs first');
           
+          let cleanupSuccess = false;
           try {
             // Quick cleanup of old logs based on index
             console.log('Upload: Running quick cleanup based on index...');
@@ -319,18 +410,44 @@ export async function onRequest({ request, env }) {
             // Retry upload after cleanup
             await XBSKV.put(storageKey, logContent);
             uploadSuccess = true;
+            cleanupSuccess = true;
             console.log(`Upload: Successfully saved log after cleanup with key: ${storageKey}`);
             
-            // Update index after successful retry
-            try {
-              await addToIndexTable(XBSKV, storageKey);
-            } catch (indexErr) {
-              console.error(`Upload: Failed to update index after retry: ${indexErr.message}`);
-            }
+            // Synchronously update index after successful retry
+            await addToIndexTable(XBSKV, storageKey);
+            console.log(`Upload: Added to index table after retry`);
+            
           } catch (retryError) {
             const retryMsg = String(retryError?.message || retryError?.toString() || 'Unknown error');
             console.error('Upload: Failed to upload after cleanup attempt:', retryMsg);
-            throw new Error(`Upload failed even after cleanup: ${retryMsg}`);
+            
+            // If cleanup and retry failed, try backup API if available
+            if (backupApiUrl) {
+              console.log(`Upload: KV storage unavailable, attempting backup API...`);
+              try {
+                const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
+                console.log(`Upload: Successfully uploaded to backup API:`, backupResult);
+                uploadedToBackup = true;
+                
+                // Return success response indicating backup storage was used
+                const responsePayload = {
+                  url: `${FRONTEND_URL}?backup=true#${backupApiUrl}`,
+                  message: 'Log uploaded to backup storage due to KV storage unavailability',
+                  backup: true
+                };
+                
+                return new Response(JSON.stringify(responsePayload), {
+                  status: 202,  // 202 Accepted - backup upload
+                  headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, OPTIONS'), 'Content-Type': 'application/json' },
+                });
+              } catch (backupErr) {
+                const backupMsg = String(backupErr?.message || backupErr?.toString() || 'Unknown error');
+                console.error('Upload: Backup API also failed:', backupMsg);
+                throw new Error(`Upload failed: KV storage unavailable and backup API failed: ${backupMsg}`);
+              }
+            } else {
+              throw new Error(`Upload failed even after cleanup: ${retryMsg}`);
+            }
           }
         } else {
           // Not a storage limit error, re-throw
