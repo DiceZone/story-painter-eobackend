@@ -52,7 +52,7 @@ function getLogRetentionDays(env) {
  * Clean up old logs that exceed the retention period
  * @param {object} kvStorage - The KV storage object (XBSKV)
  * @param {number} retentionDays - Number of days to keep logs
- * @returns {Promise<object>} Summary of deleted logs
+ * @returns {Promise<object>} Summary of deleted logs with execution logs
  */
 async function cleanupOldLogs(kvStorage, retentionDays) {
   const cutoffDate = new Date();
@@ -60,20 +60,44 @@ async function cleanupOldLogs(kvStorage, retentionDays) {
   
   let deletedCount = 0;
   let processedCount = 0;
+  const logs = [];
+  
+  const addLog = (msg) => {
+    const logEntry = `[${new Date().toISOString()}] ${msg}`;
+    logs.push(logEntry);
+    console.log(logEntry);
+  };
   
   try {
+    addLog(`Starting cleanup with retention: ${retentionDays} days, cutoff: ${cutoffDate.toISOString()}`);
+    
     // List all keys in KV storage with pagination
     let result;
     let cursor;
+    let pageCount = 0;
+    
     do {
-      result = await kvStorage.list({ cursor });
+      addLog(`Fetching page ${pageCount + 1} (cursor: ${cursor || 'null'})...`);
+      result = await kvStorage.list({ cursor, limit: 256 });
+      pageCount++;
+      
+      addLog(`Page ${pageCount}: hasResult=${!!result}, hasKeys=${!!result?.keys}, keysLength=${result?.keys?.length || 0}, complete=${result?.complete}`);
       
       if (!result || !result.keys) {
-        console.log('Cleanup: No keys found');
+        addLog(`No keys found on page ${pageCount}, breaking`);
         break;
       }
       
+      if (result.keys.length === 0) {
+        addLog(`Keys array is empty on page ${pageCount}`);
+        if (result.complete) {
+          addLog(`List is complete`);
+          break;
+        }
+      }
+      
       // Iterate through keys in current page
+      addLog(`Processing ${result.keys.length} keys on page ${pageCount}`);
       for (const keyObj of result.keys) {
         const key = keyObj.key;
         processedCount++;
@@ -84,30 +108,37 @@ async function cleanupOldLogs(kvStorage, retentionDays) {
           
           if (storedDataStr) {
             const storedData = JSON.parse(storedDataStr);
+            const createdAt = new Date(storedData.created_at);
             
             // Check if the log was created before the cutoff date
-            if (storedData.created_at && new Date(storedData.created_at) < cutoffDate) {
+            if (createdAt < cutoffDate) {
               // Delete the old log
               await kvStorage.delete(key);
               deletedCount++;
-              console.log(`Cleanup: Deleted old log key: ${key}`);
+              addLog(`DELETED: key=${key}, created=${createdAt.toISOString()}`);
+            } else {
+              addLog(`KEPT: key=${key}, created=${createdAt.toISOString()} (within retention)`);
             }
+          } else {
+            addLog(`EMPTY: key=${key} has no data`);
           }
         } catch (err) {
-          console.log(`Cleanup: Error processing key ${key}: ${err.message}`);
-          // Continue with next key even if one fails
+          addLog(`ERROR processing key ${key}: ${err.message}`);
         }
       }
       
       cursor = result.cursor;
-    } while (result && !result.complete);
+      addLog(`End of page ${pageCount}: complete=${result.complete}, nextCursor=${cursor || 'null'}`);
+    } while (result && !result.complete && cursor);
+    
+    addLog(`Completed processing ${pageCount} pages, total keys processed=${processedCount}, deleted=${deletedCount}`);
     
   } catch (err) {
-    console.error(`Cleanup: Error during cleanup process: ${err.message}`);
-    // Return partial results - cleanup failure shouldn't block the upload
+    addLog(`CRITICAL ERROR: ${err.message}`);
+    addLog(`Error stack: ${err.stack}`);
   }
   
-  return { deletedCount, processedCount, retentionDays };
+  return { deletedCount, processedCount, retentionDays, logs };
 }
 
 /**
@@ -385,7 +416,6 @@ export async function onRequest({ request, env }) {
     console.log('[ROUTE] Matched: Cleanup Logs');
     try {
       const retentionDays = getLogRetentionDays(env);
-      console.log(`Cleanup: Starting full cleanup with retention: ${retentionDays} days`);
       
       const cleanupResult = await cleanupOldLogs(XBSKV, retentionDays);
       
@@ -395,23 +425,22 @@ export async function onRequest({ request, env }) {
         deletedCount: cleanupResult.deletedCount,
         processedCount: cleanupResult.processedCount,
         retentionDays: cleanupResult.retentionDays,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        logs: cleanupResult.logs || []
       };
       
-      console.log(`Cleanup: ${responsePayload.message}`);
-      
-      return new Response(JSON.stringify(responsePayload), {
+      return new Response(JSON.stringify(responsePayload, null, 2), {
         status: 200,
         headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
       });
     } catch (error) {
-      console.error('Cleanup error:', error);
       const errorResponse = {
         success: false,
         error: error.message || 'Unknown error',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        stack: error.stack
       };
-      return new Response(JSON.stringify(errorResponse), {
+      return new Response(JSON.stringify(errorResponse, null, 2), {
         status: 500,
         headers: { ...getCorsHeaders(FRONTEND_URL, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
       });
