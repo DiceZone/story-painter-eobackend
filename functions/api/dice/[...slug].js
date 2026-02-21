@@ -285,23 +285,29 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @param {string} logdata - Base64 encoded log data
  * @returns {Promise<object>} Response from backup API
  */
+const fetch = require('node-fetch');
+const FormData = require('form-data');
+
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Send as FormData to backup API
+  // Send as FormData to backup API (with boundary)
   const formData = new FormData();
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
   formData.append('logdata', logdata);
-  
+
+  const headers = formData.getHeaders();
+
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
+    headers,
     body: formData
   });
-  
+
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Backup API returned status ${response.status}: ${errorText}`);
   }
-  
+
   return await response.json();
 }
 
