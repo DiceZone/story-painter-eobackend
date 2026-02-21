@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { LOG_RETENTION_DAYS } from '../../config/appConfig';
 
 export default function HomePage() {
   const [baseUrl, setBaseUrl] = useState('');
@@ -90,6 +91,23 @@ export default function HomePage() {
           background: #eaeef2;
           border-radius: 12px;
           display: inline-block;
+        }
+        
+        .navbar-log-retention {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          font-size: 12px;
+          color: #fff;
+          padding: 8px 16px;
+          background: #10b981;
+          border-radius: 24px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          z-index: 101;
+          box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+          opacity: 0.8;
         }
         
         .container {
@@ -290,6 +308,14 @@ export default function HomePage() {
           <span className="navbar-version">v20260222-beta0340</span>
         </a>
       </nav>
+      
+      <div className="navbar-log-retention">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        日志留存 {LOG_RETENTION_DAYS} 天
+      </div>
       
       <div className="container">
         <p className="description">
