@@ -289,11 +289,19 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 
 async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
-  // Send as FormData to backup API (with boundary)
+  // Convert base64 back to binary for FormData
+  const binaryString = atob(logdata);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: 'application/octet-stream' });
+
+  // Send as FormData to backup API (matching main API format)
   const formData = new FormData();
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
-  formData.append('logdata', logdata);
+  formData.append('file', blob);
 
   const headers = formData.getHeaders();
 
