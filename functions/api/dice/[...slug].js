@@ -86,6 +86,8 @@ async function addToIndexTable(kvStorage, key) {
         created_at: new Date().toISOString()
       };
       
+      console.log(`addToIndexTable: Current index has ${index.logs.length} entries before adding`);
+      
       // Avoid duplicates
       if (index.logs.some(log => log.key === key)) {
         console.log(`addToIndexTable: ${key} already exists in index`);
@@ -95,9 +97,11 @@ async function addToIndexTable(kvStorage, key) {
       index.logs.push(newEntry);
       index.lastUpdated = new Date().toISOString();
       
+      console.log(`addToIndexTable: Index now has ${index.logs.length} entries after adding. New entry: key=${key}, created_at=${newEntry.created_at}`);
+      
       // Try to write the updated index
       await kvStorage.put(INDEX_KEY, JSON.stringify(index));
-      console.log(`addToIndexTable: Added ${key} to index`);
+      console.log(`addToIndexTable: Successfully wrote updated index to KV`);
       return;  // Success
       
     } catch (err) {
@@ -150,7 +154,7 @@ async function cleanupOldLogsViaIndex(kvStorage, retentionDays) {
     const keysToDelete = [];
     let keptCount = 0;
     
-    // Iterate through index entries and count
+    // Iterate through index entries and identify old ones
     for (const logEntry of index.logs) {
       processedCount++;
       const createdAt = new Date(logEntry.created_at);
@@ -164,21 +168,25 @@ async function cleanupOldLogsViaIndex(kvStorage, retentionDays) {
     
     addLog(`Analysis complete: ${keysToDelete.length} logs to delete, ${keptCount} logs to keep (within ${retentionDays} day retention)`);
     
-    // Delete the old logs
+    if (keysToDelete.length === 0) {
+      addLog('No old logs found to delete');
+      return { deletedCount: 0, processedCount, retentionDays, logs };
+    }
+    
+    // Delete the old logs from KV storage
     for (const key of keysToDelete) {
       try {
         await kvStorage.delete(key);
         deletedCount++;
+        addLog(`Deleted from KV: ${key}`);
       } catch (err) {
-        addLog(`ERROR deleting log: ${err.message}`);
+        addLog(`ERROR deleting ${key} from KV: ${err.message}`);
       }
     }
     
-    if (deletedCount > 0) {
-      addLog(`Successfully deleted ${deletedCount} logs`);
-    }
+    addLog(`Deleted ${deletedCount} logs from KV storage`);
     
-    // Update the index table to remove deleted entries (with retry)
+    // Update the index table - read fresh copy before writing
     if (deletedCount > 0) {
       let updateSuccess = false;
       let retries = 0;
@@ -186,15 +194,22 @@ async function cleanupOldLogsViaIndex(kvStorage, retentionDays) {
       
       while (retries < maxRetries && !updateSuccess) {
         try {
+          // Read a fresh copy of the index (might have new uploads since we started cleanup)
           const freshIndex = await getIndexTable(kvStorage);
-          const newIndex = {
+          addLog(`Cleanup index update (attempt ${retries + 1}): fetched fresh index with ${freshIndex.logs.length} entries`);
+          
+          // Remove only the IDs we deleted from KV, keep everything else (including new uploads)
+          const updatedIndex = {
             ...freshIndex,
             logs: freshIndex.logs.filter(log => !keysToDelete.includes(log.key)),
             lastUpdated: new Date().toISOString()
           };
-          await kvStorage.put(INDEX_KEY, JSON.stringify(newIndex));
+          
+          await kvStorage.put(INDEX_KEY, JSON.stringify(updatedIndex));
           updateSuccess = true;
-          addLog(`Updated index table, removed ${deletedCount} entries`);
+          
+          addLog(`Index updated: removed ${keysToDelete.length} old entries, index now has ${updatedIndex.logs.length} entries`);
+          
         } catch (err) {
           retries++;
           addLog(`WARNING: Failed to update index (attempt ${retries}/${maxRetries}): ${err.message}`);
@@ -205,11 +220,11 @@ async function cleanupOldLogsViaIndex(kvStorage, retentionDays) {
       }
       
       if (!updateSuccess) {
-        addLog(`ERROR: Could not update index table after ${maxRetries} attempts`);
+        addLog(`ERROR: Could not update index table after ${maxRetries} attempts - cleanup incomplete`);
       }
     }
     
-    addLog(`Cleanup completed: deleted ${deletedCount} logs from ${processedCount} total`);
+    addLog(`Cleanup completed: deleted ${deletedCount} logs from KV storage and index`);
     
   } catch (err) {
     addLog(`CRITICAL ERROR: ${err.message}`);
@@ -385,6 +400,16 @@ export async function onRequest({ request, env }) {
         // This must complete before returning response or starting cleanup
         await addToIndexTable(XBSKV, storageKey);
         console.log(`Upload: Added to index table successfully`);
+        
+        // Verify the new entry is actually in the index (before returning to user)
+        const verifyIndex = await getIndexTable(XBSKV);
+        console.log(`Upload: Verification - index has ${verifyIndex.logs.length} entries`);
+        const newEntryInIndex = verifyIndex.logs.find(log => log.key === storageKey);
+        const isInIndex = !!newEntryInIndex;
+        if (!isInIndex) {
+          throw new Error(`Index verification failed: new entry not found in index after addition`);
+        }
+        console.log(`Upload: Index verification passed - new entry confirmed: key=${storageKey}, created_at=${newEntryInIndex.created_at}`);
         
       } catch (uploadError) {
         // Better error logging
