@@ -291,33 +291,25 @@ async function uploadToBackupApi(backupApiUrl, uniform_id, name, file) {
   formData.append('uniform_id', uniform_id);
   formData.append('name', name);
   formData.append('file', file);
-  
+
+  // Manually set Content-Type header for EdgeOne Pages compatibility
+  const boundary = '----FormBoundary' + Math.random().toString(36).substr(2, 9);
+  const headers = {
+    'Content-Type': `multipart/form-data; boundary=${boundary}`
+  };
+
   const response = await fetch(backupApiUrl, {
     method: 'PUT',
-    body: formData
+    body: formData,
+    headers: headers
   });
-  
-  if (!response.ok) {
+
     const errorText = await response.text();
     throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${errorText}`);
   }
-  
+
   return await response.json();
 }
-
-const getCorsHeaders = (frontendUrl, methods = 'GET, PUT, OPTIONS') => ({
-  'Access-Control-Allow-Origin': frontendUrl.slice(0, -1),
-  'Access-Control-Allow-Methods': methods,
-  'Access-Control-Allow-Headers': 'Content-Type, Accept-Version',
-});
-
-/**
- * EdgeOne Pages Function handler
- * @param {object} context - The function context.
- * @param {Request} context.request - The incoming request.
- */
-export async function onRequest({ request, env }) {
-  const { pathname, searchParams } = new URL(request.url);
 
   // Log all requests for debugging
   console.log(`[DEBUG] Request: ${request.method} ${pathname}`);
