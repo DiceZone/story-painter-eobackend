@@ -371,7 +371,7 @@ export default function HomePage() {
         
         <div className="footer">
           <a 
-            href="https://github.com/ShiaBox/story-painter-backend" 
+            href="https://github.com/DiceZone/story-painter-eobackend" 
             className="github-btn"
             target="_blank"
             rel="noopener noreferrer"
