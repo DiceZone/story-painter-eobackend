@@ -336,7 +336,7 @@ export default function HomePage({ logRetentionDays = 30 }) {
             <img src="/icon.png" alt="SealDice Logo" />
           </span>
           SealDice Log Service
-          <span className="navbar-version">v20260222-beta0340</span>
+          <span className="navbar-version">v20260223</span>
         </a>
       </nav>
       

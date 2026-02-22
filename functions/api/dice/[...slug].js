@@ -283,40 +283,62 @@ const FILE_SIZE_LIMIT_MB = 5;
  * @param {string} uniform_id - The uniform ID from the request
  * @param {string} name - The log name
  * @param {string} logdata - Base64 encoded log data
+ * @param {string[]} visitedHosts - Array of previously visited hosts to prevent circular references
  * @returns {Promise<object>} Response from backup API
  */
-async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata) {
+async function uploadToBackupApi(backupApiUrl, uniform_id, name, logdata, visitedHosts = []) {
+  // Check for circular reference
+  const backupHost = new URL(backupApiUrl).host;
+  if (visitedHosts.includes(backupHost)) {
+    throw new Error(`Circular reference detected: ${backupHost} has already been visited in the backup chain`);
+  }
+
   // Send as JSON to backup API
   const payload = {
     uniform_id,
     name,
-    logdata
+    logdata,
+    visitedHosts: [...visitedHosts, backupHost] // Include current host in the chain
   };
   
-  const response = await fetch(backupApiUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
   
-  let responseBody;
   try {
-    responseBody = await response.text();
-  } catch (e) {
-    responseBody = '';
-  }
-  
-  if (!response.ok) {
-    throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${responseBody}`);
-  }
-  
-  // Try to parse as JSON, if it fails just return the text
-  try {
-    return JSON.parse(responseBody);
-  } catch (e) {
-    return { url: responseBody };
+    const response = await fetch(backupApiUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    let responseBody;
+    try {
+      responseBody = await response.text();
+    } catch (e) {
+      responseBody = '';
+    }
+    
+    if (!response.ok) {
+      throw new Error(`Backup API URL ${backupApiUrl} returned status ${response.status}: ${responseBody}`);
+    }
+    
+    // Try to parse as JSON, if it fails just return the text
+    try {
+      return JSON.parse(responseBody);
+    } catch (e) {
+      return { url: responseBody };
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(`Backup API ${backupApiUrl} timeout after 5 seconds`);
+    }
+    throw err;
   }
 }
 
@@ -436,7 +458,8 @@ export async function onRequest({ request, env }) {
         if (backupApiUrl) {
           console.log(`Upload: KV storage failed, attempting backup API via bridge at ${backupApiUrl}...`);
           try {
-            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
+            const currentHost = new URL(request.url).host;
+            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata, [currentHost]);
             console.log(`Upload: Successfully uploaded to backup API:`, backupResult);
             uploadedToBackup = true;
             
@@ -650,7 +673,9 @@ export async function onRequest({ request, env }) {
         if (backupApiUrl) {
           console.log(`Backup Upload: Own KV failed, attempting next level backup API at ${backupApiUrl}...`);
           try {
-            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata);
+            const visitedHosts = body.visitedHosts || [];
+            const currentHost = new URL(request.url).host;
+            const backupResult = await uploadToBackupApi(backupApiUrl, uniform_id, name, logdata, [...visitedHosts, currentHost]);
             console.log(`Backup Upload: Successfully forwarded to next level backup API:`, backupResult);
 
             // Return backup API's response directly

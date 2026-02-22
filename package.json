@@ -1,6 +1,6 @@
 {
   "name": "sealdice-log-backend",
-  "version": "0.2.0",
+  "version": "20260223",
   "private": true,
   "scripts": {
     "dev": "next dev",

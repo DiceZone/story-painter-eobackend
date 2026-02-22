@@ -8,11 +8,14 @@
 
 ## 接口
 - PUT /api/dice/log（multipart/form-data：name，uniform_id=xxx:数字，file<5MB）
-- PUT /api/dice/backup-upload（备用上传，主存储失败时自动调用）
+- PUT /api/dice/backup-upload（备用上传接口，主存储失败时自动调用，支持级联）
+- GET/POST /api/dice/cleanup（手动触发日志清理）
 - GET /api/dice/load_data?key=AbCd&password=123456
 - 成功返回示例：{"url":"https://your-frontend.example.com/?key=AbCd#123456"}
 
-## 配置（必填，二选一）
+## 配置
+
+### 前端配置（必填）
 优先级：部署时设置环境变量 FRONTEND_URL > 文件 config/appConfig.js  
 两者都未提供时：接口返回 500 并提示配置。
 
@@ -21,7 +24,7 @@
 - 或：编辑文件 config/appConfig.js
   export const FRONTEND_URL = 'https://your-frontend.example.com/';
 
-## 备用上传API（可选）
+### 备用站API（可选）
 配置备用API实现日志上传高可用，当主存储失败时自动转发到备用服务器。
 
 优先级：部署时设置环境变量 BACKUP_UPLOAD_API > 文件 config/appConfig.js
@@ -32,9 +35,9 @@
   export const BACKUP_UPLOAD_API = 'https://backup-server.example.com/api/dice/backup-upload';
 
 **级联支持**  
-同一套代码可部署在多个服务器上，形成链式备用关系：主服务器 → 备用服务器1 → 备用服务器2 → ...
+同一套代码可部署在不同域名上，形成链式备用关系：主服务器 → 备用服务器1 → 备用服务器2 → ...
 
-## 日志保留策略（可选）
+### 日志保留策略（可选）
 为了防止 KV 存储容量溢出，系统支持自动清理过期日志。
 
 优先级：部署时设置环境变量 LOG_RETENTION_DAYS > 文件 config/appConfig.js > 默认值（30天）
@@ -45,10 +48,17 @@
   export const LOG_RETENTION_DAYS = 60;
 
 **工作机制**
-- 用户每次上传日志时，后端会自动扫描 KV 存储中的所有日志
-- 删除超过指定天数的旧日志
+- 用户每次上传日志时，后端会自动检查索引键
+- 按照索引删除超过指定天数的旧日志
 - 清理过程异步执行，不会影响用户的上传响应
-- 清理结果记录在后端日志中
+
+#### 清理接口使用说明
+GET 或 POST 请求 `/api/dice/cleanup` 可手动触发日志清理过程，允许浏览器直接请求该接口。
+
+**请求方式：** GET 或 POST  
+**响应格式：** JSON
+
+清理过程会根据配置的保留天数（LOG_RETENTION_DAYS）删除过期日志，并返回操作统计信息。
 
 ## 部署到EdgeOne Pages
 ### 部署后端
