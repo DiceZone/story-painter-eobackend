@@ -1,39 +1,8 @@
 import { useState, useEffect } from 'react';
 
-function getLogRetentionDays() {
-  // 1. 先从 process.env 取
-  if (process.env.LOG_RETENTION_DAYS) {
-    const days = parseInt(process.env.LOG_RETENTION_DAYS, 10);
-    if (!isNaN(days) && days > 0) {
-      return days;
-    }
-  }
-  
-  // 2. 再从 appConfig 取
-  try {
-    const appConfig = require('../../config/appConfig.js');
-    if (appConfig.LOG_RETENTION_DAYS && appConfig.LOG_RETENTION_DAYS > 0) {
-      return appConfig.LOG_RETENTION_DAYS;
-    }
-  } catch (err) {
-    // ignore
-  }
-  
-  // 3. 默认30天
-  return 30;
-}
-
-export async function getStaticProps() {
-  return {
-    props: {
-      logRetentionDays: getLogRetentionDays(),
-    },
-    revalidate: 3600, // 每小时重新生成一次
-  };
-}
-
-export default function HomePage({ logRetentionDays = 30 }) {
+export default function HomePage() {
   const [baseUrl, setBaseUrl] = useState('');
+  const logRetentionDays = process.env.NEXT_PUBLIC_LOG_RETENTION_DAYS || '30';
   
   useEffect(() => {
     // 在客户端获取当前域名
