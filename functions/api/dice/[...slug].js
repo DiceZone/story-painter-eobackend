@@ -393,7 +393,7 @@ export async function onRequest({ request, env }) {
       const file = formData.get("file");
       const uniform_id = formData.get("uniform_id");
 
-      if (!/^[A-Za-z0-9_]+:[A-Za-z0-9_\-\.]+$/.test(uniform_id)) {
+      if (!/^[^:]+:[A-Za-z0-9_\-\.]+$/.test(uniform_id)) {
         return new Response(
           JSON.stringify({ data: "uniform_id field did not pass validation" }),
           { status: 400, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, OPTIONS'), 'Content-Type': 'application/json' } }
@@ -616,7 +616,7 @@ export async function onRequest({ request, env }) {
         );
       }
 
-      if (!/^[A-Za-z0-9_]+:[A-Za-z0-9_\-\.]+$/.test(uniform_id)) {
+      if (!/^[^:]+:[A-Za-z0-9_\-\.]+$/.test(uniform_id)) {
         return new Response(
           JSON.stringify({ data: "uniform_id field did not pass validation" }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
