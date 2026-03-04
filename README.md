@@ -8,6 +8,7 @@
 
 ## 接口
 - PUT /api/dice/log（multipart/form-data：name，uniform_id=xxx:数字，file<5MB）
+- POST /api/dice/w4123（专门为 w4123/Dice 的第三方日志上传插件提供的上传接口）
 - PUT /api/dice/backup-upload（备用上传接口，主存储失败时自动调用，支持级联）
 - GET/POST /api/dice/cleanup（手动触发日志清理）
 - GET /api/dice/load_data?key=AbCd&password=123456

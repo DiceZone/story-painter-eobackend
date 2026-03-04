@@ -1,3 +1,5 @@
+import { zlibSync } from 'fflate';
+
 // Utility functions
 function generateRandomString(length) {
   let result = "";
@@ -705,7 +707,232 @@ export async function onRequest({ request, env }) {
     }
   }
 
+  // --- Route 5: W4123 Upload (Lua Plugin Support) ---
+  if ((pathname === '/api/dice/w4123' || pathname.endsWith('/api/dice/w4123')) && (request.method === 'PUT' || request.method === 'POST')) {
+    console.log('[ROUTE] Matched: W4123 Upload');
+    try {
+      const contentLength = request.headers.get('Content-Length');
+      if (contentLength && parseInt(contentLength, 10) > FILE_SIZE_LIMIT_MB * 1024 * 1024) {
+        return new Response(
+          JSON.stringify({ success: false, message: `File size exceeds ${FILE_SIZE_LIMIT_MB}MB limit` }),
+          { status: 413, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' } }
+        );
+      }
+
+      let name, uniform_id, logdata;
+      
+      // 支持multipart/form-data（lua插件使用）和JSON两种格式
+      const contentType = request.headers.get('Content-Type') || '';
+      if (contentType.includes('multipart/form-data')) {
+        const formData = await request.formData();
+        name = formData.get("name");
+        uniform_id = formData.get("uniform_id");
+        const file = formData.get("file");
+
+        if (!name || !uniform_id || !file) {
+          return new Response(
+            JSON.stringify({ success: false, message: "Missing required fields: name, uniform_id, or file" }),
+            { status: 400, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (file.size > FILE_SIZE_LIMIT_MB * 1024 * 1024) {
+          return new Response(
+            JSON.stringify({ success: false, message: `File size exceeds ${FILE_SIZE_LIMIT_MB}MB limit` }),
+            { status: 413, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' } }
+          );
+        }
+
+        // 读取文件内容
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // 将文本内容转换为SealDice格式的JSON
+        const text = new TextDecoder('utf-8').decode(uint8Array);
+        const logItems = parseTextLogToSealDiceFormat(text);
+        
+        if (logItems.length === 0) {
+          return new Response(
+            JSON.stringify({ success: false, message: "日志解析失败：没有找到有效的日志条目" }),
+            { status: 400, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        // 构建SealDice格式的JSON
+        const logJson = JSON.stringify({
+          version: 1,
+          items: logItems
+        });
+        
+        // zlib压缩
+        const textEncoder = new TextEncoder();
+        const logBytes = textEncoder.encode(logJson);
+        const compressed = zlibSync(logBytes);
+        
+        // Base64编码
+        let binaryString = '';
+        compressed.forEach((byte) => { binaryString += String.fromCharCode(byte); });
+        logdata = btoa(binaryString);
+        
+        console.log(`[W4123] Original size: ${logBytes.length} bytes, Compressed: ${compressed.length} bytes, Ratio: ${(compressed.length / logBytes.length * 100).toFixed(1)}%`);
+        
+      } else {
+        // JSON格式
+        const body = await request.json();
+        name = body.name;
+        logdata = body.logdata;
+        uniform_id = body.uniform_id;
+
+        if (!uniform_id || !name || !logdata) {
+          return new Response(
+            JSON.stringify({ success: false, message: "Missing required fields: uniform_id, name, or logdata" }),
+            { status: 400, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
+      // 验证uniform_id格式
+      if (!/^[^:]+:[A-Za-z0-9_\-\.]+$/.test(uniform_id)) {
+        return new Response(
+          JSON.stringify({ success: false, message: "uniform_id field did not pass validation" }),
+          { status: 400, headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const retentionDays = getLogRetentionDays(env);
+      const password = Math.floor(Math.random() * (999999 - 100000 + 1) + 100000);
+      const key = generateRandomString(4);
+      const storageKey = `${key}#${password}`;
+      
+      // 生成存储数据（使用SealDice客户端类型）
+      const logContent = JSON.stringify({
+        client: "SealDice",
+        created_at: new Date().toISOString(),
+        data: logdata,
+        name: name,
+        note: "Uploaded by w4123 plugin",
+        updated_at: new Date().toISOString(),
+      });
+
+      try {
+        // 存储到KV
+        await XBSKV.put(storageKey, logContent);
+        console.log(`W4123 Upload: Successfully saved with key: ${storageKey}`);
+
+        // 添加到索引表
+        await addToIndexTable(XBSKV, storageKey);
+        console.log(`W4123 Upload: Added to index table successfully`);
+
+        // 后台清理过期日志
+        cleanupOldLogsViaIndex(XBSKV, retentionDays)
+          .then(result => {
+            if (result.deletedCount > 0) {
+              console.log(`W4123 Upload: Background cleanup deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
+            }
+          })
+          .catch(err => {
+            console.error(`W4123 Upload: Background cleanup failed (non-critical): ${err.message}`);
+          });
+
+        const responsePayload = { url: `${FRONTEND_URL}?key=${key}#${password}` };
+
+        return new Response(JSON.stringify(responsePayload), {
+          status: 200,
+          headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' },
+        });
+      } catch (kvErr) {
+        const errorMsg = String(kvErr?.message || kvErr?.toString() || 'Unknown error');
+        console.error(`W4123 Upload: KV storage failed: ${errorMsg}`);
+        return new Response(`KV storage error: ${errorMsg}`, { 
+          status: 500,
+          headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' }
+        });
+      }
+
+    } catch (error) {
+      console.error('W4123 upload error:', error);
+      const errorMsg = error.stack || error.message || 'Internal Server Error';
+      return new Response(JSON.stringify({ 
+        success: false, 
+        message: errorMsg 
+      }), { 
+        status: 500,
+        headers: { ...getCorsHeaders(FRONTEND_URL, 'PUT, POST, OPTIONS'), 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
   // --- Fallback: Not Found ---
   console.log(`[FALLBACK] No route matched for: ${request.method} ${pathname}`);
   return new Response('访问的API接口不存在或方式错误，检查API设置是否正确', { status: 404 });
+}
+
+/**
+ * Parse text log to SealDice format
+ * 格式示例: 昵称(ID) 时间\n消息内容\n\n
+ */
+function parseTextLogToSealDiceFormat(text) {
+  const items = [];
+  const lines = text.split('\n');
+  let currentItem = null;
+  let id = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // 匹配格式: 昵称(ID) 时间
+    const headerMatch = line.match(/^(.+)\((.+?)\)\s+(.+)$/);
+    if (headerMatch) {
+      // 保存前一个item
+      if (currentItem && currentItem.message) {
+        currentItem.id = ++id;
+        currentItem.isDice = isDiceCommand(currentItem.message);
+        currentItem.commandId = currentItem.isDice ? 1 : 0;
+        items.push(currentItem);
+      }
+      
+      // 开始新item
+      currentItem = {
+        nickname: headerMatch[1],
+        IMUserId: headerMatch[2],
+        timeText: headerMatch[3],
+        message: '',
+      };
+      
+      // 尝试解析时间
+      const timeMatch = headerMatch[3].match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
+      if (timeMatch) {
+        const time = new Date(timeMatch[1]);
+        if (!isNaN(time.getTime())) {
+          currentItem.time = Math.floor(time.getTime() / 1000);
+        }
+      }
+    } else if (currentItem && line !== '') {
+      // 添加消息内容
+      if (currentItem.message) {
+        currentItem.message += '\n' + line;
+      } else {
+        currentItem.message = line;
+      }
+    }
+  }
+  
+  // 保存最后一个item
+  if (currentItem && currentItem.message) {
+    currentItem.id = ++id;
+    currentItem.isDice = isDiceCommand(currentItem.message);
+    currentItem.commandId = currentItem.isDice ? 1 : 0;
+    items.push(currentItem);
+  }
+  
+  return items;
+}
+
+/**
+ * Check if message is a dice command
+ */
+function isDiceCommand(message) {
+  const diceCommands = ['.r', '.rh', '.ra', '.raa', '.rs', '.rc', '.d', '.log', '.nn', '.n'];
+  const lowerMsg = message.trim().toLowerCase();
+  return diceCommands.some(cmd => lowerMsg.startsWith(cmd));
 }

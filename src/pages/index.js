@@ -160,7 +160,7 @@ export default function HomePage() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 48px;
+          min-width: 48px;
           height: 28px;
           border-radius: 4px;
           font-size: 11px;
@@ -305,7 +305,7 @@ export default function HomePage() {
             <img src="/icon.png" alt="SealDice Logo" />
           </span>
           SealDice Log Service
-          <span className="navbar-version">v20260223</span>
+          <span className="navbar-version">v20260305</span>
         </a>
       </nav>
       
@@ -338,6 +338,29 @@ export default function HomePage() {
               <button 
                 className="copy-btn" 
                 onClick={() => copyToClipboard('/api/dice/log')}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                复制
+              </button>
+            </div>
+          </div>
+
+          <div className="api-item">
+            <div className={`api-method method-post`}>POST</div>
+            <div className="api-details">
+              <div className="api-path">/api/dice/w4123</div>
+              <div className="api-description">适配 w4123/Dice 的接口，支持txt直接上传</div>
+              {baseUrl && (
+                <div className="api-url">{baseUrl}/api/dice/w4123</div>
+              )}
+            </div>
+            <div className="api-actions">
+              <button
+                className="copy-btn"
+                onClick={() => copyToClipboard('/api/dice/w4123')}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
