@@ -14,6 +14,27 @@
 - GET /api/dice/load_data?key=AbCd&password=123456
 - 成功返回示例：{"url":"https://your-frontend.example.com/?key=AbCd#123456"}
 
+## 本地/自建部署（多存储后端）
+
+除 EdgeOne Pages（白嫖 KV）外，可用 `server.mjs` 自建部署，存储后端可选 **SQLite（零依赖）/ S3 / 腾讯云 COS**。
+
+```bash
+cp .env.example .env      # 按需填写 FRONTEND_URL、STORAGE_TYPE 等
+npm install               # SQLite 无需额外依赖；S3/COS 见下
+STORAGE_TYPE=sqlite FRONTEND_URL=https://你的染色器 node server.mjs
+# 或： npm run start:local
+```
+
+- **STORAGE_TYPE=sqlite**（默认）：本地文件 `SQLITE_PATH`（默认 `./data/logs.db`），用 Node 内建 `node:sqlite`，无需编译原生模块。
+- **STORAGE_TYPE=s3**：AWS S3 / MinIO / COS 的 S3 兼容端点。需 `npm i @aws-sdk/client-s3`，配 `S3_BUCKET/S3_REGION/S3_ENDPOINT/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY`。
+- **STORAGE_TYPE=cos**：腾讯云 COS 原生 SDK。需 `npm i cos-nodejs-sdk-v5`，配 `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION`。
+
+存储层是 `get/put/delete/list` 接口（`src/storage/`），核心路由 `handleDiceRequest`（`functions/api/dice/[...slug].js`）与存储解耦：EdgeOne 走全局 `XBSKV`，本地走 `server.mjs` 注入的适配器。新增后端只需实现该接口并在 `src/storage/index.js` 注册。
+
+## DiceNext 专属格式（client=DiceNext）
+
+除海豹的 `client=SealDice`（zlib JSON）/`Parquet`（parquet）外，新增轻量的 **`client=DiceNext` = zstd 压缩的 `{items,version:105}` JSON**：压缩比接近 V105 却无需 parquet 重依赖（染色器仅用 fzstd 解压）。上传方在 multipart 里带 `client=DiceNext` 即可，后端透传该字段、染色器据此解码。
+
 ## 配置
 
 ### 前端配置（必填）

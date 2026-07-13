@@ -11,10 +11,10 @@ function generateRandomString(length) {
   return result;
 }
 
-function generateStorageData(data, name) {
+function generateStorageData(data, name, client = "SealDice") {
   const now = new Date().toISOString();
   return {
-    client: "SealDice",
+    client: client,
     created_at: now,
     data: data,
     name: name,
@@ -54,7 +54,7 @@ const INDEX_KEY = '0Aindex';
 
 /**
  * Read the index table from KV storage
- * @param {object} kvStorage - The KV storage object (XBSKV)
+ * @param {object} kvStorage - The KV storage object (storage)
  * @returns {Promise<object>} Index table object with logs array
  */
 async function getIndexTable(kvStorage) {
@@ -72,7 +72,7 @@ async function getIndexTable(kvStorage) {
 
 /**
  * Update the index table with a new log entry (read-modify-write with version check)
- * @param {object} kvStorage - The KV storage object (XBSKV)
+ * @param {object} kvStorage - The KV storage object (storage)
  * @param {string} key - The storage key of the new log
  * @returns {Promise<void>}
  */
@@ -123,7 +123,7 @@ async function addToIndexTable(kvStorage, key) {
 
 /**
  * Clean up old logs based on index table
- * @param {object} kvStorage - The KV storage object (XBSKV)
+ * @param {object} kvStorage - The KV storage object (storage)
  * @param {number} retentionDays - Number of days to keep logs
  * @returns {Promise<object>} Summary of deleted logs with execution logs
  */
@@ -355,7 +355,9 @@ const getCorsHeaders = (frontendUrl, methods = 'GET, PUT, OPTIONS') => ({
  * @param {object} context - The function context.
  * @param {Request} context.request - The incoming request.
  */
-export async function onRequest({ request, env }) {
+// 核心路由处理：与存储后端解耦。storage 需实现 get(key)/put(key,value)/delete(key)。
+// EdgeOne(全局storage) 与本地 server.js(SQLite/S3/COS) 共用此函数。
+export async function handleDiceRequest(request, storage, env) {
   const { pathname, searchParams } = new URL(request.url);
 
   // Log all requests for debugging
@@ -371,11 +373,6 @@ export async function onRequest({ request, env }) {
   // Handle CORS preflight requests
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: getCorsHeaders(FRONTEND_URL) });
-  }
-
-  // Check for KV binding in the global scope
-  if (typeof XBSKV === 'undefined') {
-    return new Response('严重错误：API服务找不到全局KV绑定"XBSKV"。请向日志站维护者反馈修正 EdgeOne Pages 配置。CRITICAL ERROR: Global KV Binding "XBSKV" not found. Please verify EdgeOne Pages configuration.', { status: 500 });
   }
 
   // --- Route 1: Upload Log ---
@@ -394,6 +391,9 @@ export async function onRequest({ request, env }) {
       const name = formData.get("name");
       const file = formData.get("file");
       const uniform_id = formData.get("uniform_id");
+      // 透传上传方声明的客户端类型（SealDice=zlib JSON / Parquet=parquet / DiceNext=zstd JSON）。
+      // 染色器据此选择解码方式；缺省 SealDice 兼容旧客户端。
+      const client = formData.get("client") || "SealDice";
 
       if (!/^[^:]+:[A-Za-z0-9_\-\.]+$/.test(uniform_id)) {
         return new Response(
@@ -418,7 +418,7 @@ export async function onRequest({ request, env }) {
       const password = Math.floor(Math.random() * (999999 - 100000 + 1) + 100000);
       const key = generateRandomString(4);
       const storageKey = `${key}#${password}`;
-      const logContent = JSON.stringify(generateStorageData(logdata, name));
+      const logContent = JSON.stringify(generateStorageData(logdata, name, client));
 
       // Try to upload the log
       let uploadSuccess = false;
@@ -429,17 +429,17 @@ export async function onRequest({ request, env }) {
       
       try {
         // Attempt upload
-        await XBSKV.put(storageKey, logContent);
+        await storage.put(storageKey, logContent);
         uploadSuccess = true;
         console.log(`Upload: Successfully saved log with key: ${storageKey}`);
         
         // Synchronously add to index table immediately after successful upload
         // This must complete before returning response or starting cleanup
-        await addToIndexTable(XBSKV, storageKey);
+        await addToIndexTable(storage, storageKey);
         console.log(`Upload: Added to index table successfully`);
         
         // Verify the new entry is actually in the index (before returning to user)
-        const verifyIndex = await getIndexTable(XBSKV);
+        const verifyIndex = await getIndexTable(storage);
         console.log(`Upload: Verification - index has ${verifyIndex.logs.length} entries`);
         const newEntryInIndex = verifyIndex.logs.find(log => log.key === storageKey);
         const isInIndex = !!newEntryInIndex;
@@ -488,7 +488,7 @@ export async function onRequest({ request, env }) {
 
       // Continue with background cleanup for expired logs (async, doesn't block)
       if (uploadSuccess) {
-        cleanupOldLogsViaIndex(XBSKV, retentionDays)
+        cleanupOldLogsViaIndex(storage, retentionDays)
           .then(result => {
             if (result.deletedCount > 0) {
               console.log(`Background cleanup: deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
@@ -518,7 +518,7 @@ export async function onRequest({ request, env }) {
     try {
       const retentionDays = getLogRetentionDays(env);
       
-      const cleanupResult = await cleanupOldLogsViaIndex(XBSKV, retentionDays);
+      const cleanupResult = await cleanupOldLogsViaIndex(storage, retentionDays);
       
       const responsePayload = {
         success: true,
@@ -572,8 +572,8 @@ export async function onRequest({ request, env }) {
         });
       }
       
-      // Use the global XBSKV variable
-      const storedData = await XBSKV.get(storageKey);
+      // Use the global storage variable
+      const storedData = await storage.get(storageKey);
 
       if (storedData === null) {
         return new Response(JSON.stringify({ error: "Data not found" }), {
@@ -641,16 +641,16 @@ export async function onRequest({ request, env }) {
 
       try {
         // Try to store in own KV
-        await XBSKV.put(storageKey, backupLogContent);
+        await storage.put(storageKey, backupLogContent);
         console.log(`Backup Upload: Successfully saved with key: ${storageKey}`);
 
         // Add to index table
-        await addToIndexTable(XBSKV, storageKey);
+        await addToIndexTable(storage, storageKey);
         console.log(`Backup Upload: Added to index table successfully`);
         backupUploadSuccess = true;
 
         // Continue with background cleanup for expired logs (async, doesn't block)
-        cleanupOldLogsViaIndex(XBSKV, retentionDays)
+        cleanupOldLogsViaIndex(storage, retentionDays)
           .then(result => {
             if (result.deletedCount > 0) {
               console.log(`Backup Upload: Background cleanup deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
@@ -816,15 +816,15 @@ export async function onRequest({ request, env }) {
 
       try {
         // 存储到KV
-        await XBSKV.put(storageKey, logContent);
+        await storage.put(storageKey, logContent);
         console.log(`W4123 Upload: Successfully saved with key: ${storageKey}`);
 
         // 添加到索引表
-        await addToIndexTable(XBSKV, storageKey);
+        await addToIndexTable(storage, storageKey);
         console.log(`W4123 Upload: Added to index table successfully`);
 
         // 后台清理过期日志
-        cleanupOldLogsViaIndex(XBSKV, retentionDays)
+        cleanupOldLogsViaIndex(storage, retentionDays)
           .then(result => {
             if (result.deletedCount > 0) {
               console.log(`W4123 Upload: Background cleanup deleted ${result.deletedCount} logs older than ${result.retentionDays} days`);
@@ -935,4 +935,22 @@ function isDiceCommand(message) {
   const diceCommands = ['.r', '.rh', '.ra', '.raa', '.rs', '.rc', '.d', '.log', '.nn', '.n'];
   const lowerMsg = message.trim().toLowerCase();
   return diceCommands.some(cmd => lowerMsg.startsWith(cmd));
+}
+
+// ─── EdgeOne KV 存储适配器（包装全局 XBSKV 绑定）────────────────
+class EdgeOneKVStorage {
+  constructor(kv) { this.kv = kv; }
+  get(key) { return this.kv.get(key); }
+  put(key, value) { return this.kv.put(key, value); }
+  delete(key) { return this.kv.delete(key); }
+  // EdgeOne KV 无原生 list；靠索引表(0Aindex)枚举，故不实现 list()。
+}
+
+// ─── EdgeOne Pages Function 入口（薄封装）────────────────────
+// 本地/自建部署走 server.js，注入 SQLite/S3/COS 存储后调用 handleDiceRequest。
+export async function onRequest({ request, env }) {
+  if (typeof XBSKV === 'undefined') {
+    return new Response('严重错误：API服务找不到全局KV绑定"XBSKV"。请向日志站维护者反馈修正 EdgeOne Pages 配置。CRITICAL ERROR: Global KV Binding "XBSKV" not found. Please verify EdgeOne Pages configuration.', { status: 500 });
+  }
+  return handleDiceRequest(request, new EdgeOneKVStorage(XBSKV), env);
 }
