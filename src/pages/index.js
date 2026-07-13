@@ -319,7 +319,7 @@ export default function HomePage() {
       
       <div className="container">
         <p className="description">
-          用于对接海豹骰子（SealDice）的自维护日志存储后端服务。
+          用于对接海豹骰子（SealDice）和 Dice!Next 的自维护日志存储后端服务。
         </p>
         
         <h2 className="section-title">API 端点</h2>
