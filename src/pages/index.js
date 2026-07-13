@@ -305,7 +305,7 @@ export default function HomePage() {
             <img src="/icon.png" alt="SealDice Logo" />
           </span>
           SealDice Log Service
-          <span className="navbar-version">v20260305</span>
+          <span className="navbar-version">v20260714</span>
         </a>
       </nav>
       
