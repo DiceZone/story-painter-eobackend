@@ -1,5 +1,6 @@
 // DiceNext 日志站 —— 本地/自建部署入口（Node HTTP 服务器）。
-// 复用 EdgeOne 函数里的 handleDiceRequest；存储后端由 STORAGE_TYPE 选择（sqlite/s3/cos）。
+// 与 EdgeOne 函数共用核心处理器 src/lib/dice-handler.mjs；存储后端由 STORAGE_TYPE 选择。
+// 本地相关文件均用 .mjs（ESM），根 package.json 不设 type:module —— 避免影响 EdgeOne 的 Next 构建。
 //
 // 运行：
 //   STORAGE_TYPE=sqlite SQLITE_PATH=./data/logs.db FRONTEND_URL=https://你的染色器域名 \
@@ -7,15 +8,8 @@
 //
 // 反代到 /api/dice/* 即可对接骰子上传与染色器读取。
 import { createServer } from 'node:http';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
-import { getLocalStorage } from './src/storage/index.js';
-
-// 处理函数所在文件名含方括号（[...slug].js），静态 import 在 Node ESM 下不稳，
-// 用绝对路径 + pathToFileURL 动态导入（正确编码特殊字符）。
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const handlerHref = pathToFileURL(join(__dirname, 'functions', 'api', 'dice', '[...slug].js')).href;
-const { handleDiceRequest } = await import(handlerHref);
+import { getLocalStorage } from './src/storage/index.mjs';
+import { handleDiceRequest } from './src/lib/dice-handler.mjs';
 
 const PORT = parseInt(process.env.PORT || '8787', 10);
 const storage = await getLocalStorage(process.env);

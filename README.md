@@ -29,7 +29,9 @@ STORAGE_TYPE=sqlite FRONTEND_URL=https://你的染色器 node server.mjs
 - **STORAGE_TYPE=s3**：AWS S3 / MinIO / COS 的 S3 兼容端点。需 `npm i @aws-sdk/client-s3`，配 `S3_BUCKET/S3_REGION/S3_ENDPOINT/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY`。
 - **STORAGE_TYPE=cos**：腾讯云 COS 原生 SDK。需 `npm i cos-nodejs-sdk-v5`，配 `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION`。
 
-存储层是 `get/put/delete/list` 接口（`src/storage/`），核心路由 `handleDiceRequest`（`functions/api/dice/[...slug].js`）与存储解耦：EdgeOne 走全局 `XBSKV`，本地走 `server.mjs` 注入的适配器。新增后端只需实现该接口并在 `src/storage/index.js` 注册。
+存储层是 `get/put/delete/list` 接口（`src/storage/*.mjs`），核心路由 `handleDiceRequest`（`src/lib/dice-handler.mjs`）与存储解耦：EdgeOne 入口 `functions/api/dice/[...slug].js` 注入全局 `XBSKV`，本地 `server.mjs` 注入 SQLite/S3/COS 适配器。新增后端只需实现该接口并在 `src/storage/index.mjs` 注册。
+
+> 说明：本地部署相关文件用 `.mjs`（显式 ESM），根 `package.json` **不设** `type:module`、`next.config.js` 保持 CommonJS —— 避免影响 EdgeOne 的 Next 构建。
 
 ## DiceNext 专属格式（client=DiceNext）
 

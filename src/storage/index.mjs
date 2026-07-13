@@ -4,15 +4,15 @@ export async function getLocalStorage(env) {
   const type = ((env && env.STORAGE_TYPE) || process.env.STORAGE_TYPE || 'sqlite').toLowerCase();
   switch (type) {
     case 'sqlite': {
-      const m = await import('./sqlite.js');
+      const m = await import('./sqlite.mjs');
       return m.createSqliteStorage(env);
     }
     case 's3': {
-      const m = await import('./s3.js');
+      const m = await import('./s3.mjs');
       return m.createS3Storage(env);
     }
     case 'cos': {
-      const m = await import('./cos.js');
+      const m = await import('./cos.mjs');
       return m.createCosStorage(env);
     }
     case 'edgeone':

@@ -1,5 +1,4 @@
 /** @type {import('next').NextConfig} */
-import { LOG_RETENTION_DAYS as CFG_LOG_RETENTION_DAYS } from './config/appConfig.js';
 
 function getLogRetentionDays() {
   // 1. 从environment取
@@ -12,9 +11,14 @@ function getLogRetentionDays() {
   }
 
   // 2. 从appConfig.js取
-  if (CFG_LOG_RETENTION_DAYS && CFG_LOG_RETENTION_DAYS > 0) {
-    console.log(`[Build] Using LOG_RETENTION_DAYS from appConfig.js: ${CFG_LOG_RETENTION_DAYS}`);
-    return CFG_LOG_RETENTION_DAYS;
+  try {
+    const appConfig = require('./config/appConfig.mjs');
+    if (appConfig.LOG_RETENTION_DAYS && appConfig.LOG_RETENTION_DAYS > 0) {
+      console.log(`[Build] Using LOG_RETENTION_DAYS from appConfig.js: ${appConfig.LOG_RETENTION_DAYS}`);
+      return appConfig.LOG_RETENTION_DAYS;
+    }
+  } catch (err) {
+    console.warn(`[Build] Failed to read appConfig.js: ${err.message}`);
   }
 
   // 3. 默认30天
@@ -29,4 +33,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;

@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js / build
+.next/
+out/
+build/
+.edgeone/
+
+# 本地部署运行时数据（SQLite 等）
+data/
+*.db
+*.db-journal
+*.sqlite
+
+# 环境变量（含密钥，勿提交）
+.env
+.env.local
+.env.*.local
+
+# 杂项
+.DS_Store
+*.log
+npm-debug.log*
